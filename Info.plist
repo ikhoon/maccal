@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>kr.ikhoon.maccal</string>
+    <!-- Packaged as a .app bundle so macOS TCC grants maccal its own Calendar
+         permission row (a bare CLI can't get one). -->
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>maccal</string>
+    <key>CFBundleExecutable</key>
+    <string>maccal</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2.0</string>
+    <key>CFBundleVersion</key>
+    <string>0.2.0</string>
+    <!-- macOS 14+ full-access prompt text. -->
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>maccal reads and edits your calendar events from the command line.</string>
+    <!-- Legacy key (pre-14, and some code paths still consult it). -->
+    <key>NSCalendarsUsageDescription</key>
+    <string>maccal reads and edits your calendar events from the command line.</string>
+</dict>
+</plist>
