@@ -1,0 +1,26 @@
+name: CI
+
+# maccal links EventKit/AppKit, so it only builds on macOS. The check suite
+# (`swift run maccalCheck`) is entirely pure (FakeCalendarStore — no TCC, no real
+# calendar), so it runs unattended here. The live EventKit round-trip
+# (`--integration`) needs a Calendar grant and is intentionally NOT run in CI.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift toolchain
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Run checks (pure)
+        run: swift run maccalCheck
