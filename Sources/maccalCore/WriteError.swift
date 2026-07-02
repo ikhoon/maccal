@@ -27,6 +27,7 @@ public enum WriteValidationError: MaccalError, Equatable {
     case invalidTimeZone(String)
     case recurringRequiresAllOccurrences  // a recurring event needs --all-occurrences
     case noChanges
+    case sameSourceTarget                 // sync --from and --to resolve to the same calendar
 
     public var description: String {
         switch self {
@@ -41,6 +42,7 @@ public enum WriteValidationError: MaccalError, Equatable {
         case .recurringRequiresAllOccurrences:
             return "this is a recurring event — re-run with --all-occurrences to change the whole series (per-occurrence edits are not yet supported)"
         case .noChanges: return "no changes given"
+        case .sameSourceTarget: return "--from and --to must be different calendars"
         }
     }
 }

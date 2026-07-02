@@ -66,6 +66,18 @@ Create and modify events. `CalendarAccess` already supports `needsWrite` / write
 
 ---
 
+## M5 — Calendar sync (`sync`) ✅
+
+One-way mirror of one or more source calendars into a target calendar over a window.
+
+- [x] `sync --from… --to` — `--from` repeats (union of sources); each selector is `"Account/*"` (whole account), `"Account/Calendar"`, or a bare title/identifier (disambiguates names shared across accounts). Idempotent mirror over a date window (default today … +30d); each copy carries a hidden url marker (`maccal-sync://<epoch>/<srcId>`) keyed on the source occurrence (id + start)
+- [x] Re-run diff — create new, update changed, mirror-delete gone + duplicate copies (`--no-delete` to keep); only marker-bearing copies are ever touched, so the target's own events are safe
+- [x] Detail levels — title+time+location (default), `--notes` (body), `--busy` (opaque "Busy" — forces availability too); `--since`/`--until`, `--json`, `--dry-run`, `--yes`
+- [x] `WriteValidationError.sameSourceTarget`; source → `calendarNotFound`, ambiguous → `ambiguousCalendar`, read-only target → `notWritable`
+- [x] Checks: marker round-trip, account selector, multi-source union, idempotent / update / tz-change / mirror-delete / duplicate-converge / --no-delete / busy / notes / errors / dry-run / abort against `FakeCalendarStore` (335 checks total)
+
+---
+
 ## Conventions
 
 - All logic lives in `maccalCore` behind `CalendarStore` so commands are testable with no TCC/EventKit/network.

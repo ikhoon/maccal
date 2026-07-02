@@ -329,6 +329,44 @@ maccal rm <id> --all-occurrences  # whole recurring series
 
 ---
 
+### `sync`
+
+One-way **mirror** one or more source calendars into a target over a date window.
+Idempotent: re-run any time (or from `cron`/`launchd`) and it only adds new
+events, updates changed ones, and removes ones whose source is gone. Only
+maccal's own copies are touched — your other events in the target are left alone
+(each copy carries a hidden marker in its url).
+
+`--from` repeats, and a selector can be `"Account/*"` (an entire account),
+`"Account/Calendar"` (to disambiguate a name shared across accounts), or a bare
+title/identifier.
+
+```console
+$ maccal sync --from "Google/Team" --to "iCloud/Mirror" --dry-run
+would sync: Team → Mirror   +3 new  ~0 changed  -0 removed
+  + 2026-06-20T10:00:00+09:00  Standup
+  + 2026-06-20T14:00:00+09:00  Design review
+  + 2026-06-21T12:00:00+09:00  Lunch
+```
+
+```bash
+maccal sync --from A --to B --yes                        # title + time + location
+maccal sync --from A --from "Team Events" --to B --yes   # several sources → one target
+maccal sync --from A --to B --notes --yes                # also copy the body
+maccal sync --from A --to B --busy --yes                 # opaque "Busy", hide details
+maccal sync --from A --to B --until +14d --yes           # only the next 2 weeks
+maccal sync --from A --to B --no-delete --yes            # never delete from target
+```
+
+Default window is today … +30d. Detail is **title + time + location** by default;
+`--notes` adds the body, `--busy` copies only opaque "Busy" blocks. Automate it
+with a `launchd`/`cron` job running `maccal sync … --yes`.
+
+Flags: `--from` (repeatable), `--to`, `--since`/`--until`, `--notes`, `--busy`,
+`--no-delete`, `--json`, `--dry-run`, `--yes`.
+
+---
+
 ### `auth`
 
 Grant maccal its own Calendar access (run once, interactively). See
