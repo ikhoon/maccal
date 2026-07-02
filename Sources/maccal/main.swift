@@ -88,7 +88,7 @@ struct Maccal: ParsableCommand {
         The id in the last column of agenda/search output is what you pass to show,
         edit, and rm. Run 'maccal <command> --help' for per-command flags.
         """,
-        version: "0.4.0",
+        version: "0.5.0",
         subcommands: [
             CalendarsCommand.self, AgendaCommand.self, ShowCommand.self, SearchCommand.self,
             AddCommand.self, EditCommand.self, RmCommand.self, SyncCommand.self, AuthCommand.self,
