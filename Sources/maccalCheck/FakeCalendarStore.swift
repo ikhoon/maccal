@@ -11,6 +11,9 @@ final class FakeCalendarStore: CalendarStore {
     /// --all-occurrences routing without a real recurring event.
     private(set) var lastSpan: WriteSpan?
     private var idCounter = 0
+    /// Test hook: occurrence start-dates per series id, standing in for EventKit's
+    /// rule expansion. `seriesOccurrences` reads it; `cancelOccurrence` removes from it.
+    var seriesOccurrenceDates: [String: [Date]] = [:]
 
     init(calendars: [CalendarInfo] = [], events: [EventInfo] = [], defaultCalendar: CalendarInfo? = nil) {
         self.calendarList = calendars
@@ -41,6 +44,19 @@ final class FakeCalendarStore: CalendarStore {
     }
 
     func defaultWritableCalendar() -> CalendarInfo? { defaultCalendar }
+
+    func seriesOccurrences(id: String, in window: DateInterval) -> [Date] {
+        // Half-open [start, end): exclude an occurrence exactly at window.end,
+        // matching EventInfo.overlaps and EventKit's predicate.
+        (seriesOccurrenceDates[id] ?? []).filter { $0 >= window.start && $0 < window.end }
+    }
+
+    func cancelOccurrence(id: String, occurrence: Date) throws {
+        guard var dates = seriesOccurrenceDates[id] else { return }
+        let target = Int(occurrence.timeIntervalSinceReferenceDate.rounded())
+        dates.removeAll { Int($0.timeIntervalSinceReferenceDate.rounded()) == target }
+        seriesOccurrenceDates[id] = dates
+    }
 
     func createEvent(_ draft: EventDraft) throws -> EventInfo {
         let cal = try resolveCalendar(draft.calendar)

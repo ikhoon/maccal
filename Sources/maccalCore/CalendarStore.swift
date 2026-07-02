@@ -345,4 +345,16 @@ public protocol CalendarStore {
     func deleteEvent(id: String, span: WriteSpan) throws -> EventInfo
     /// The default calendar for new events, or nil when none is configured.
     func defaultWritableCalendar() -> CalendarInfo?
+
+    /// The actual occurrence start-dates of the recurring series `id` within
+    /// `window`. Occurrences cancelled at the source are already excluded (the
+    /// store expands the rule minus its exceptions, like events(in:)). Empty for
+    /// a non-recurring or unknown id.
+    func seriesOccurrences(id: String, in window: DateInterval) -> [Date]
+    /// Cancel a single occurrence of the recurring series `id` at `occurrence`,
+    /// recording an exception so that occurrence no longer appears (EventKit has
+    /// no EXDATE-write, so this removes the specific occurrence with .thisEvent).
+    /// No-op when the occurrence isn't found. Throws WriteError.notWritable /
+    /// .storeFailure.
+    func cancelOccurrence(id: String, occurrence: Date) throws
 }
