@@ -134,6 +134,48 @@ public final class EKCalendarStore: CalendarStore {
         return info
     }
 
+    public func seriesOccurrences(id: String, in window: DateInterval) -> [Date] {
+        // Occurrences of a recurring series share the same eventIdentifier;
+        // EventKit's predicate expands the rule and already drops cancelled
+        // occurrences (EXDATE). Filter to this series and de-dupe by second.
+        guard !id.isEmpty, window.duration > 0,
+              let anchor = store.event(withIdentifier: id),
+              anchor.hasRecurrenceRules else { return [] } // non-recurring → no series occurrences
+        let scope = anchor.calendar.map { [$0] }
+        var seen = Set<Int>()
+        var dates: [Date] = []
+        for chunk in Self.chunk(window) {
+            let predicate = store.predicateForEvents(withStart: chunk.start, end: chunk.end, calendars: scope)
+            for ev in store.events(matching: predicate) where ev.eventIdentifier == id {
+                guard let s = ev.startDate else { continue }
+                if seen.insert(Int(s.timeIntervalSinceReferenceDate.rounded())).inserted { dates.append(s) }
+            }
+        }
+        return dates
+    }
+
+    public func cancelOccurrence(id: String, occurrence: Date) throws {
+        guard !id.isEmpty, let anchor = store.event(withIdentifier: id) else { return }
+        guard anchor.calendar?.allowsContentModifications ?? false else { throw WriteError.notWritable }
+        // Locate the specific occurrence in a tight window, then remove it with
+        // .thisEvent — EventKit records the exception on the series.
+        let predicate = store.predicateForEvents(
+            withStart: occurrence.addingTimeInterval(-1),
+            end: occurrence.addingTimeInterval(1),
+            calendars: anchor.calendar.map { [$0] }
+        )
+        let target = occurrence.timeIntervalSinceReferenceDate
+        guard let occ = store.events(matching: predicate).first(where: {
+            $0.eventIdentifier == id
+                && abs(($0.startDate ?? .distantPast).timeIntervalSinceReferenceDate - target) < 1
+        }) else { return }
+        do {
+            try store.remove(occ, span: .thisEvent, commit: true)
+        } catch {
+            throw WriteError.storeFailure((error as NSError).localizedDescription)
+        }
+    }
+
     /// Resolve a selector to exactly one writable calendar, or the default
     /// new-event calendar when no selector was given. Never silently falls back
     /// to the default when a selector was provided but unmatched.

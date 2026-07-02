@@ -15,6 +15,9 @@
 // A recurring source series is mirrored as ONE rule-bearing event (its anchor
 // start/end + recurrence rule), keyed by source id alone — not one copy per
 // occurrence (which would flood the target and trigger an invite mail each).
+// Occurrences cancelled at the source (e.g. "skip this week") are then excluded
+// from the copy by cancelling the matching occurrence on the target series —
+// EventKit has no EXDATE-write, so `cancelOccurrence` removes that one occurrence.
 //
 // Pure logic over CalendarStore + Confirmer — resolve/plan/confirm/mirror
 // branches are all testable with no TCC or EventKit.
@@ -56,6 +59,14 @@ public func parseSyncMarker(_ url: String) -> (srcId: String, start: Date)? {
 /// id (there are none) or distinct single events are keyed by (id, start).
 private func occKey(_ id: String, _ start: Date) -> String {
     "\(id)\u{0}\(Int(start.timeIntervalSinceReferenceDate.rounded()))"
+}
+
+/// Occurrence start-dates the target copy still has but the source series no
+/// longer does (cancelled at the source) — to be excluded from the copy.
+/// Compared at whole-second resolution.
+public func occurrencesToCancel(sourceDates: [Date], targetDates: [Date]) -> [Date] {
+    let src = Set(sourceDates.map { Int($0.timeIntervalSinceReferenceDate.rounded()) })
+    return targetDates.filter { !src.contains(Int($0.timeIntervalSinceReferenceDate.rounded())) }
 }
 
 /// Identity key matching a source event to its target copy. A recurring series
@@ -171,6 +182,8 @@ public func runSync(
 
     var sourceKeys = Set<String>()
     var handledRecurring = Set<String>()
+    var recurringSourceIds: [String] = []       // recurring series ids that were synced
+    var existingCopyId: [String: String] = [:]  // recurring source id -> its existing copy id
     var toCreate: [EventDraft] = []
     var toUpdate: [(id: String, changes: EventChanges, draft: EventDraft, span: WriteSpan)] = []
     for s in sourceEvents {
@@ -185,10 +198,12 @@ public func runSync(
         } else {
             src = s
         }
+        if src.recurring { recurringSourceIds.append(src.id) }
         let key = syncKey(srcId: src.id, start: src.start, recurring: src.recurring)
         sourceKeys.insert(key)
         let d = desiredDraft(src)
         if let existing = syncedByKey[key] {
+            if src.recurring { existingCopyId[src.id] = existing.id }
             if !upToDate(existing, d) {
                 // A recurring copy is written as the whole series (.futureEvents);
                 // a single event touches only itself (.thisEvent).
@@ -209,6 +224,20 @@ public func runSync(
         toDelete.append(contentsOf: duplicates)
     }
 
+    // Pre-write estimate of cancellations on already-existing copies, used only
+    // for the dry-run preview and the "nothing to do" check. The authoritative
+    // set is recomputed AFTER writes (an update can change a copy's occurrences).
+    var existingCancel: [(copyId: String, dates: [Date])] = []
+    for sid in recurringSourceIds {
+        guard let copyId = existingCopyId[sid] else { continue }
+        let dates = occurrencesToCancel(
+            sourceDates: store.seriesOccurrences(id: sid, in: window),
+            targetDates: store.seriesOccurrences(id: copyId, in: window))
+        if !dates.isEmpty { existingCancel.append((copyId, dates)) }
+    }
+    let existingCancelCount = existingCancel.reduce(0) { $0 + $1.dates.count }
+    let newRecurring = toCreate.contains { $0.recurrenceRule != nil }
+
     func whenOf(_ start: Date, _ allDay: Bool) -> String {
         allDay ? Output.localDate(start, timeZone: timeZone) : Output.localISO(start, timeZone: timeZone)
     }
@@ -216,34 +245,52 @@ public func runSync(
     let sources = srcCals.map(\.title).joined(separator: ", ")
     let label = "\(sources) → \(dst.title)"
 
-    if toCreate.isEmpty, toUpdate.isEmpty, toDelete.isEmpty {
+    if toCreate.isEmpty, toUpdate.isEmpty, toDelete.isEmpty, existingCancelCount == 0 {
         if json {
-            return .wrote(Output.jsonLine(SyncSummary(source: sources, target: dst.title, created: 0, updated: 0, deleted: 0)))
+            return .wrote(Output.jsonLine(SyncSummary(source: sources, target: dst.title, created: 0, updated: 0, deleted: 0, cancelled: 0)))
         }
         return .wrote("sync: already up to date — \(label) (\(sourceEvents.count) events in window)")
     }
 
     func plan(_ verb: String) -> String {
-        var lines = ["\(verb): \(label)   +\(toCreate.count) new  ~\(toUpdate.count) changed  -\(toDelete.count) removed"]
+        var lines = ["\(verb): \(label)   +\(toCreate.count) new  ~\(toUpdate.count) changed  -\(toDelete.count) removed  ✂\(existingCancelCount) cancelled"]
         for d in toCreate.sorted(by: { $0.start < $1.start }) { lines.append("  + \(whenOf(d.start, d.allDay))  \(d.title)") }
         for u in toUpdate.sorted(by: { $0.draft.start < $1.draft.start }) { lines.append("  ~ \(whenOf(u.draft.start, u.draft.allDay))  \(u.draft.title)") }
         for t in EventInfo.sortedByStart(toDelete) { lines.append("  - \(whenOf(t.start, t.allDay))  \(t.title)") }
+        for c in existingCancel { for d in c.dates.sorted() { lines.append("  ✂ \(whenOf(d, false))  (cancelled occurrence)") } }
+        if newRecurring { lines.append("  (cancelled occurrences on newly-created series are applied on write)") }
         return lines.joined(separator: "\n")
     }
 
     if dryRun { return .dryRun(plan("would sync")) }
     guard confirm.confirm(plan("sync") + "\n\nApply these changes to \(dst.title)?") else { return .aborted }
 
-    var created = 0, updated = 0, deleted = 0
-    for d in toCreate { _ = try store.createEvent(d); created += 1 }
+    var created = 0, updated = 0, deleted = 0, cancelled = 0
+    var createdCopyId: [String: String] = [:]   // recurring source id -> new copy id
+    for d in toCreate {
+        let info = try store.createEvent(d); created += 1
+        if d.recurrenceRule != nil, let m = parseSyncMarker(d.url) { createdCopyId[m.srcId] = info.id }
+    }
     for u in toUpdate { _ = try store.updateEvent(id: u.id, u.changes, span: u.span); updated += 1 }
     // Recurring copies delete the whole series; single events delete just themselves.
     for t in toDelete { _ = try store.deleteEvent(id: t.id, span: t.recurring ? .futureEvents : .thisEvent); deleted += 1 }
+    // Reflect source-side occurrence cancellations on the copies. Recomputed HERE
+    // — after create/update — because an updated copy's occurrence dates (from a
+    // start or recurrence-rule change) would be stale if diffed before the write.
+    // Covers both existing and newly-created copies; the copy id comes from the
+    // source series id via the marker.
+    for sid in recurringSourceIds {
+        guard let copyId = existingCopyId[sid] ?? createdCopyId[sid] else { continue }
+        let dates = occurrencesToCancel(
+            sourceDates: store.seriesOccurrences(id: sid, in: window),
+            targetDates: store.seriesOccurrences(id: copyId, in: window))
+        for d in dates { try store.cancelOccurrence(id: copyId, occurrence: d); cancelled += 1 }
+    }
 
     if json {
-        return .wrote(Output.jsonLine(SyncSummary(source: sources, target: dst.title, created: created, updated: updated, deleted: deleted)))
+        return .wrote(Output.jsonLine(SyncSummary(source: sources, target: dst.title, created: created, updated: updated, deleted: deleted, cancelled: cancelled)))
     }
-    return .wrote("synced: \(label)   +\(created) new  ~\(updated) changed  -\(deleted) removed")
+    return .wrote("synced: \(label)   +\(created) new  ~\(updated) changed  -\(deleted) removed  ✂\(cancelled) cancelled")
 }
 
 private struct SyncSummary: Encodable {
@@ -252,4 +299,5 @@ private struct SyncSummary: Encodable {
     let created: Int
     let updated: Int
     let deleted: Int
+    let cancelled: Int
 }

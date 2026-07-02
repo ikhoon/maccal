@@ -1337,6 +1337,88 @@ do {
     c.eq(s.lastSpan, .thisEvent, "single-event mirror-delete routes span .thisEvent")
 }
 
+// MARK: sync — reflect occurrences cancelled at the source
+
+do {
+    // occurrencesToCancel: target dates absent from source are the cancellations.
+    let d1 = agToday.addingTimeInterval(day), d2 = agToday.addingTimeInterval(2 * day), d3 = agToday.addingTimeInterval(3 * day)
+    c.eq(occurrencesToCancel(sourceDates: [d1, d3], targetDates: [d1, d2, d3]).map { Int($0.timeIntervalSinceReferenceDate.rounded()) },
+         [Int(d2.timeIntervalSinceReferenceDate.rounded())], "cancel = target − source (by date)")
+    c.eq(occurrencesToCancel(sourceDates: [], targetDates: [d1, d2]).count, 2, "empty source → every target date cancels")
+    c.eq(occurrencesToCancel(sourceDates: [d1, d2, d3], targetDates: [d1, d2]).count, 0, "target ⊆ source → nothing cancels")
+    c.eq(occurrencesToCancel(sourceDates: [d1.addingTimeInterval(0.4)], targetDates: [d1]).count, 0, "sub-second diffs aren't cancellations")
+}
+
+do {
+    // Fake seriesOccurrences / cancelOccurrence plumbing: window filter, remove, idempotent.
+    let s = syncStore([])
+    let d1 = agToday.addingTimeInterval(day), d2 = agToday.addingTimeInterval(2 * day), far = agToday.addingTimeInterval(90 * day)
+    s.seriesOccurrenceDates["X"] = [d1, d2, far]
+    let win = DateInterval(start: agToday, end: agToday.addingTimeInterval(30 * day))
+    c.eq(s.seriesOccurrences(id: "X", in: win).count, 2, "seriesOccurrences filters to the window")
+    try! s.cancelOccurrence(id: "X", occurrence: d2)
+    c.expect(!s.seriesOccurrences(id: "X", in: win).contains(d2), "cancelOccurrence removes the occurrence")
+    try! s.cancelOccurrence(id: "X", occurrence: d2)
+    c.eq(s.seriesOccurrences(id: "X", in: win).count, 1, "cancelling an already-gone occurrence is a no-op")
+}
+
+do {
+    // end-to-end: a source series that dropped an occurrence gets that occurrence
+    // cancelled on the copy too (reflecting the source-side cancellation).
+    let s = syncStore([recEvent("R1", "Standup", RecurrenceRule(frequency: .daily))])
+    _ = try! syncRun(s)                              // create the recurring copy
+    let copyId = syncedCopies(s)[0].id
+    let w1 = agToday.addingTimeInterval(day), w2 = agToday.addingTimeInterval(2 * day), w3 = agToday.addingTimeInterval(3 * day)
+    s.seriesOccurrenceDates["R1"] = [w1, w3]         // source: w2 cancelled
+    s.seriesOccurrenceDates[copyId] = [w1, w2, w3]   // copy still has all three
+    let r = try! syncRun(s)                          // reconcile
+    c.expect(r.output.contains("cancelled"), "reconcile reports a cancellation")
+    let win = DateInterval(start: agToday, end: agToday.addingTimeInterval(30 * day))
+    c.eq(s.seriesOccurrences(id: copyId, in: win).map { Int($0.timeIntervalSinceReferenceDate.rounded()) },
+         [w1, w3].map { Int($0.timeIntervalSinceReferenceDate.rounded()) },
+         "the copy's cancelled occurrence (w2) is removed to match the source")
+    let r2 = try! syncRun(s)
+    c.expect(r2.output.contains("up to date"), "re-sync after reconciliation is a no-op")
+}
+
+do {
+    // seriesOccurrences is empty for a non-recurring / unseeded id (contract;
+    // the real EKCalendarStore guards on hasRecurrenceRules).
+    let s = syncStore([srcEvent("S1", "One-off", 1)])
+    _ = try! syncRun(s)
+    let win = DateInterval(start: agToday, end: agToday.addingTimeInterval(30 * day))
+    c.eq(s.seriesOccurrences(id: "S1", in: win).count, 0, "seriesOccurrences empty for a non-recurring id")
+}
+
+do {
+    // seriesOccurrences window is half-open [start, end): keep start, drop end.
+    let s = syncStore([])
+    let start = agToday, end = agToday.addingTimeInterval(10 * day)
+    s.seriesOccurrenceDates["X"] = [start, end.addingTimeInterval(-day), end]
+    let got = s.seriesOccurrences(id: "X", in: DateInterval(start: start, end: end))
+    c.expect(got.contains(start), "occurrence at window.start is included")
+    c.expect(!got.contains(end), "occurrence exactly at window.end is excluded (half-open)")
+    c.eq(got.count, 2, "half-open window keeps start, drops the end boundary")
+}
+
+do {
+    // an existing recurring copy UPDATED in the same sync still gets its
+    // cancellations — the diff is recomputed after the update, not on stale dates.
+    let s = syncStore([recEvent("R1", "Rec", RecurrenceRule(frequency: .daily))])
+    _ = try! syncRun(s)                                  // create copy (daily)
+    let copyId = syncedCopies(s)[0].id
+    s.eventList[0] = recEvent("R1", "Rec", RecurrenceRule(frequency: .weekly, daysOfWeek: [2])) // rule change
+    let w1 = agToday.addingTimeInterval(day), w2 = agToday.addingTimeInterval(2 * day), w3 = agToday.addingTimeInterval(3 * day)
+    s.seriesOccurrenceDates["R1"] = [w1, w3]             // source dropped w2
+    s.seriesOccurrenceDates[copyId] = [w1, w2, w3]
+    let r = try! syncRun(s)
+    c.expect(r.performed, "update + cancellation applied in one sync")
+    c.expect(syncedCopies(s)[0].recurrenceRule?.frequency == .weekly, "the copy's rule was updated")
+    c.eq(s.lastSpan, .futureEvents, "the recurring update routed .futureEvents")
+    let win = DateInterval(start: agToday, end: agToday.addingTimeInterval(30 * day))
+    c.expect(!s.seriesOccurrences(id: copyId, in: win).contains(w2), "cancellation still applied after the update")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {
