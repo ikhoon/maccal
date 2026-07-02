@@ -91,7 +91,7 @@ struct Maccal: ParsableCommand {
         version: "0.2.0",
         subcommands: [
             CalendarsCommand.self, AgendaCommand.self, ShowCommand.self, SearchCommand.self,
-            AddCommand.self, EditCommand.self, RmCommand.self, AuthCommand.self,
+            AddCommand.self, EditCommand.self, RmCommand.self, SyncCommand.self, AuthCommand.self,
             CompletionsCommand.self,
         ]
     )
@@ -511,6 +511,79 @@ struct RmCommand: ParsableCommand {
                 store: EKCalendarStore(store: store),
                 id: id, allOccurrences: allOccurrences, json: json, dryRun: dryRun,
                 confirm: confirmer, timeZone: .current
+            )
+            try emit(result)
+        } catch let e as MaccalError {
+            FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
+            throw ExitCode(1)
+        }
+    }
+}
+
+struct SyncCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "sync",
+        abstract: "One-way mirror of events from one or more calendars into another.",
+        discussion: """
+        Copies events from one or more --from calendars into --to over a date
+        window. A selector is "Account/Calendar" or a bare title/identifier, so
+        names that repeat across accounts can be disambiguated. Idempotent: copies
+        are marked, so re-running adds new / updates changed / removes gone ones
+        (unless --no-delete). Only maccal's own copies are touched.
+
+        Examples:
+          $ maccal sync --from "Google/Team" --to "iCloud/Mirror" --dry-run
+          $ maccal sync --from Meetings --from Reviews --to Mirror --until +14d --yes
+          $ maccal sync --from Meetings --to Mirror --busy --yes     # hide details
+          $ maccal sync --from Meetings --to Mirror --notes          # include the body
+
+        Run it periodically (e.g. a launchd/cron job with --yes) to stay in sync.
+        """
+    )
+
+    @Option(name: .long, help: "Source calendar to copy FROM — repeatable. \"Account/*\" (whole account), \"Account/Calendar\", or a title/identifier.")
+    var from: [String]
+
+    @Option(name: .long, help: "Target calendar to copy INTO (\"Account/Calendar\" or title/id); must be writable.")
+    var to: String
+
+    @Option(name: .long, help: "Window start (default today). Same forms as agenda's --from.")
+    var since: String?
+
+    @Option(name: .long, help: "Window end, exclusive (default +30d).")
+    var until: String?
+
+    @Flag(name: .long, help: "Also copy the notes/body (default: title, time, location only).")
+    var notes = false
+
+    @Flag(name: .long, help: "Copy as opaque 'Busy' with time only — hides all details. Excludes --notes.")
+    var busy = false
+
+    @Flag(name: .long, help: "Keep target copies whose source was deleted (default: mirror-delete them).")
+    var noDelete = false
+
+    @Flag(name: .long, help: "Emit the summary as a JSON object.")
+    var json = false
+
+    @Flag(name: .long, help: "Show the plan (new/changed/removed) without writing.")
+    var dryRun = false
+
+    @Flag(name: [.long, .customShort("y")], help: "Skip the confirmation prompt (required on a non-TTY).")
+    var yes = false
+
+    func run() throws {
+        if notes, busy { throw ValidationError("--notes and --busy are mutually exclusive") }
+        if from.isEmpty { throw ValidationError("at least one --from is required") }
+        let detail: SyncDetail = busy ? .busy : (notes ? .withNotes : .titleTimeLocation)
+        let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "sync")
+        let store = EKEventStore()
+        CalendarAccess.require(store: store, needsWrite: !dryRun) // dry-run only reads
+        do {
+            let result = try runSync(
+                store: EKCalendarStore(store: store),
+                from: from, to: to, since: since, until: until,
+                detail: detail, noDelete: noDelete, json: json, dryRun: dryRun,
+                confirm: confirmer, now: Date(), timeZone: .current
             )
             try emit(result)
         } catch let e as MaccalError {
