@@ -541,7 +541,7 @@ struct SyncCommand: ParsableCommand {
         """
     )
 
-    @Option(name: .long, help: "Source calendar to copy FROM — repeatable. \"Account/Calendar\" or a title/identifier.")
+    @Option(name: .long, help: "Source calendar to copy FROM — repeatable. \"Account/*\" (whole account), \"Account/Calendar\", or a title/identifier.")
     var from: [String]
 
     @Option(name: .long, help: "Target calendar to copy INTO (\"Account/Calendar\" or title/id); must be writable.")

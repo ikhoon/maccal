@@ -54,27 +54,35 @@ private func occKey(_ id: String, _ start: Date) -> String {
     "\(id)\u{0}\(Int(start.timeIntervalSinceReferenceDate.rounded()))"
 }
 
-/// Resolve a selector to exactly one calendar. A selector is either
-/// "Account/Calendar" (source title + calendar title — to disambiguate a name
-/// that repeats across accounts) or a bare calendar title / identifier.
-func resolveCalendarSelector(_ sel: String, in cals: [CalendarInfo]) throws -> CalendarInfo {
-    let matches: [CalendarInfo]
+/// Resolve a selector to one or more calendars. Forms:
+///   "Account/*"        → every calendar in that account (source title)
+///   "Account/Calendar" → the calendar with that title in that account
+///   "Title" / id       → the calendar with that title or identifier
+/// A non-wildcard selector must resolve to exactly one calendar.
+func resolveSelectors(_ sel: String, in cals: [CalendarInfo]) throws -> [CalendarInfo] {
     if let slash = sel.firstIndex(of: "/") {
         let account = String(sel[..<slash])
-        let title = String(sel[sel.index(after: slash)...])
-        matches = cals.filter {
+        let name = String(sel[sel.index(after: slash)...])
+        if name == "*" {
+            let all = cals.filter { $0.source.localizedCaseInsensitiveCompare(account) == .orderedSame }
+            guard !all.isEmpty else { throw WriteError.calendarNotFound(sel) }
+            return all
+        }
+        let m = cals.filter {
             $0.source.localizedCaseInsensitiveCompare(account) == .orderedSame
-                && $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
+                && $0.title.localizedCaseInsensitiveCompare(name) == .orderedSame
         }
-    } else {
-        matches = cals.filter {
-            $0.title.localizedCaseInsensitiveCompare(sel) == .orderedSame
-                || $0.calendarIdentifier.caseInsensitiveCompare(sel) == .orderedSame
-        }
+        guard !m.isEmpty else { throw WriteError.calendarNotFound(sel) }
+        guard m.count == 1 else { throw WriteError.ambiguousCalendar(sel) }
+        return m
     }
-    guard !matches.isEmpty else { throw WriteError.calendarNotFound(sel) }
-    guard matches.count == 1 else { throw WriteError.ambiguousCalendar(sel) }
-    return matches[0]
+    let m = cals.filter {
+        $0.title.localizedCaseInsensitiveCompare(sel) == .orderedSame
+            || $0.calendarIdentifier.caseInsensitiveCompare(sel) == .orderedSame
+    }
+    guard !m.isEmpty else { throw WriteError.calendarNotFound(sel) }
+    guard m.count == 1 else { throw WriteError.ambiguousCalendar(sel) }
+    return m
 }
 
 public func runSync(
@@ -92,8 +100,13 @@ public func runSync(
     timeZone: TimeZone = .current
 ) throws -> WriteResult {
     let cals = store.calendars()
-    let srcCals = try from.map { try resolveCalendarSelector($0, in: cals) }
-    let dst = try resolveCalendarSelector(to, in: cals)
+    // Sources may include "Account/*" wildcards; flatten and de-dup by identifier.
+    var seenSrc = Set<String>()
+    let srcCals = try from.flatMap { try resolveSelectors($0, in: cals) }
+        .filter { seenSrc.insert($0.calendarIdentifier).inserted }
+    let dstMatches = try resolveSelectors(to, in: cals)
+    guard dstMatches.count == 1 else { throw WriteError.ambiguousCalendar(to) }
+    let dst = dstMatches[0]
     let srcIds = srcCals.map(\.calendarIdentifier)
     guard !srcIds.contains(dst.calendarIdentifier) else { throw WriteValidationError.sameSourceTarget }
     guard dst.writable else { throw WriteError.notWritable }

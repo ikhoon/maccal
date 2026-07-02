@@ -1223,6 +1223,22 @@ do {
     c.eq(syncedCopies(s)[0].timeZone, "America/New_York", "copy reflects the new time zone")
 }
 
+do {
+    // "Account/*" selects every calendar in that account.
+    let a1 = CalendarInfo.fixture(title: "Cal1", source: "Acct", calendarIdentifier: "c1")
+    let a2 = CalendarInfo.fixture(title: "Cal2", source: "Acct", calendarIdentifier: "c2")
+    let dst = CalendarInfo.fixture(title: "Dst", source: "Other", calendarIdentifier: "cd")
+    let s = FakeCalendarStore(calendars: [a1, a2, dst], defaultCalendar: dst)
+    s.eventList = [
+        EventInfo.fixture(id: "E1", title: "One", calendar: "Cal1", calendarId: "c1", start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour)),
+        EventInfo.fixture(id: "E2", title: "Two", calendar: "Cal2", calendarId: "c2", start: agToday.addingTimeInterval(3 * hour), end: agToday.addingTimeInterval(4 * hour)),
+    ]
+    _ = try! runSync(store: s, from: ["Acct/*"], to: "Dst", since: nil, until: nil, detail: .titleTimeLocation, noDelete: false, json: false, dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst)
+    let copies = s.events(in: DateInterval(start: agToday, end: agToday.addingTimeInterval(40 * day)), calendars: ["cd"])
+    c.eq(copies.count, 2, "Account/* mirrors every calendar in the account")
+    c.eq(Set(copies.map { $0.title }), ["One", "Two"], "both calendars in the account are copied")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

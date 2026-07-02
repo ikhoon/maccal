@@ -337,8 +337,9 @@ events, updates changed ones, and removes ones whose source is gone. Only
 maccal's own copies are touched — your other events in the target are left alone
 (each copy carries a hidden marker in its url).
 
-`--from` repeats, and a selector can be `"Account/Calendar"` (to disambiguate a
-name shared across accounts) or a bare title/identifier.
+`--from` repeats, and a selector can be `"Account/*"` (an entire account),
+`"Account/Calendar"` (to disambiguate a name shared across accounts), or a bare
+title/identifier.
 
 ```console
 $ maccal sync --from "Google/Team" --to "iCloud/Mirror" --dry-run
