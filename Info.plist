@@ -15,9 +15,9 @@
     <key>CFBundleExecutable</key>
     <string>maccal</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
+    <string>0.3.0</string>
     <key>CFBundleVersion</key>
-    <string>0.2.0</string>
+    <string>0.3.0</string>
     <!-- macOS 14+ full-access prompt text. -->
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>maccal reads and edits your calendar events from the command line.</string>
