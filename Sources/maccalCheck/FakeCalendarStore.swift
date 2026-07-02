@@ -51,7 +51,8 @@ final class FakeCalendarStore: CalendarStore {
             timeZone: draft.allDay ? "" : (draft.timeZoneId ?? ""),
             location: draft.location, notes: draft.notes, url: draft.url,
             status: "confirmed", availability: draft.availability,
-            organizer: "", attendees: [], recurring: false
+            organizer: "", attendees: [], recurring: draft.recurrenceRule != nil,
+            recurrenceRule: draft.recurrenceRule
         )
         eventList.append(info)
         return info
@@ -133,14 +134,16 @@ extension EventInfo {
         availability: String = "busy",
         organizer: String = "",
         attendees: [AttendeeInfo] = [],
-        recurring: Bool = false
+        recurring: Bool = false,
+        recurrenceRule: RecurrenceRule? = nil
     ) -> EventInfo {
         EventInfo(
             id: id, calendar: calendar, calendarId: calendarId, title: title,
             start: start, end: end, allDay: allDay, timeZone: timeZone,
             location: location, notes: notes, url: url, status: status,
             availability: availability, organizer: organizer,
-            attendees: attendees, recurring: recurring
+            attendees: attendees, recurring: recurring,
+            recurrenceRule: recurrenceRule
         )
     }
 }

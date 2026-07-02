@@ -86,6 +86,7 @@ public final class EKCalendarStore: CalendarStore {
         if !draft.notes.isEmpty { ev.notes = draft.notes }
         if !draft.url.isEmpty { ev.url = URL(string: draft.url) }
         ev.availability = Self.availabilityValue(draft.availability)
+        if let rule = draft.recurrenceRule { ev.recurrenceRules = [Self.ekRecurrenceRule(rule)] }
         do {
             try store.save(ev, span: .thisEvent, commit: true) // commit now: a CLI has no run loop
         } catch {
@@ -111,6 +112,7 @@ public final class EKCalendarStore: CalendarStore {
         if let n = changes.notes { ev.notes = n.isEmpty ? nil : n }
         if let u = changes.url { ev.url = u.isEmpty ? nil : URL(string: u) }
         if let av = changes.availability { ev.availability = Self.availabilityValue(av) }
+        if let rule = changes.recurrenceRule { ev.recurrenceRules = [Self.ekRecurrenceRule(rule)] }
 
         do {
             try store.save(ev, span: Self.ekSpan(span), commit: true)
@@ -212,7 +214,51 @@ public final class EKCalendarStore: CalendarStore {
             availability: availabilityString(ev.availability),
             organizer: participantName(ev.organizer),
             attendees: (ev.attendees ?? []).map(attendeeInfo),
-            recurring: ev.hasRecurrenceRules
+            recurring: ev.hasRecurrenceRules,
+            recurrenceRule: recurrenceRule(from: ev.recurrenceRules?.first)
+        )
+    }
+
+    // MARK: - Recurrence ↔ RecurrenceRule
+
+    static func recurrenceRule(from rule: EKRecurrenceRule?) -> RecurrenceRule? {
+        guard let rule else { return nil }
+        let freq: RecurrenceRule.Frequency
+        switch rule.frequency {
+        case .daily: freq = .daily
+        case .weekly: freq = .weekly
+        case .monthly: freq = .monthly
+        case .yearly: freq = .yearly
+        @unknown default: return nil // an unrecognized frequency → treat as non-recurring
+        }
+        let end = rule.recurrenceEnd
+        let count = (end?.occurrenceCount ?? 0) > 0 ? end?.occurrenceCount : nil
+        let days = (rule.daysOfTheWeek ?? []).map { $0.dayOfTheWeek.rawValue }
+        return RecurrenceRule(frequency: freq, interval: rule.interval, until: end?.endDate, count: count, daysOfWeek: days)
+    }
+
+    static func ekRecurrenceRule(_ rule: RecurrenceRule) -> EKRecurrenceRule {
+        let freq: EKRecurrenceFrequency
+        switch rule.frequency {
+        case .daily: freq = .daily
+        case .weekly: freq = .weekly
+        case .monthly: freq = .monthly
+        case .yearly: freq = .yearly
+        }
+        let days = rule.daysOfWeek.compactMap { EKWeekday(rawValue: $0) }.map { EKRecurrenceDayOfWeek($0) }
+        let end: EKRecurrenceEnd?
+        if let until = rule.until {
+            end = EKRecurrenceEnd(end: until)
+        } else if let count = rule.count {
+            end = EKRecurrenceEnd(occurrenceCount: count)
+        } else {
+            end = nil
+        }
+        return EKRecurrenceRule(
+            recurrenceWith: freq, interval: rule.interval,
+            daysOfTheWeek: days.isEmpty ? nil : days,
+            daysOfTheMonth: nil, monthsOfTheYear: nil, weeksOfTheYear: nil,
+            daysOfTheYear: nil, setPositions: nil, end: end
         )
     }
 
