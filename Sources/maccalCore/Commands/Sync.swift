@@ -12,6 +12,10 @@
 // same source occurrence, so it converges to exactly one). Only marker-bearing
 // events in the target are ever touched; the user's own events are left alone.
 //
+// A recurring source series is mirrored as ONE rule-bearing event (its anchor
+// start/end + recurrence rule), keyed by source id alone — not one copy per
+// occurrence (which would flood the target and trigger an invite mail each).
+//
 // Pure logic over CalendarStore + Confirmer — resolve/plan/confirm/mirror
 // branches are all testable with no TCC or EventKit.
 
@@ -48,10 +52,17 @@ public func parseSyncMarker(_ url: String) -> (srcId: String, start: Date)? {
     return (srcId, Date(timeIntervalSinceReferenceDate: epoch))
 }
 
-/// Occurrence key (id + rounded start). Recurring occurrences share an id but
-/// differ by start, so each is mirrored as its own target event.
+/// Occurrence key (id + rounded start). Non-recurring occurrences of the same
+/// id (there are none) or distinct single events are keyed by (id, start).
 private func occKey(_ id: String, _ start: Date) -> String {
     "\(id)\u{0}\(Int(start.timeIntervalSinceReferenceDate.rounded()))"
+}
+
+/// Identity key matching a source event to its target copy. A recurring series
+/// is keyed by source id alone — one rule-bearing copy for the whole series — so
+/// occurrences aren't exploded; a single event is keyed by (id, start).
+private func syncKey(srcId: String, start: Date, recurring: Bool) -> String {
+    recurring ? "R\u{0}\(srcId)" : occKey(srcId, start)
 }
 
 /// Resolve a selector to one or more calendars. Forms:
@@ -124,7 +135,7 @@ public func runSync(
     var duplicates: [EventInfo] = []
     for t in targetEvents {
         guard let m = parseSyncMarker(t.url) else { continue }
-        let key = occKey(m.srcId, m.start)
+        let key = syncKey(srcId: m.srcId, start: m.start, recurring: t.recurring)
         if syncedByKey[key] == nil { syncedByKey[key] = t } else { duplicates.append(t) }
     }
 
@@ -145,7 +156,8 @@ public func runSync(
             location: detail.showsLocation ? s.location : "",
             notes: detail.showsNotes ? s.notes : "",
             url: makeSyncMarker(srcId: s.id, start: s.start),
-            availability: avail
+            availability: avail,
+            recurrenceRule: s.recurrenceRule
         )
     }
 
@@ -154,22 +166,37 @@ public func runSync(
         let expectedTZ = d.allDay ? "" : (d.timeZoneId ?? "")
         return t.title == d.title && t.start == d.start && t.end == d.end && t.allDay == d.allDay
             && t.timeZone == expectedTZ && t.location == d.location && t.notes == d.notes
-            && t.availability == d.availability
+            && t.availability == d.availability && t.recurrenceRule == d.recurrenceRule
     }
 
     var sourceKeys = Set<String>()
+    var handledRecurring = Set<String>()
     var toCreate: [EventDraft] = []
-    var toUpdate: [(id: String, changes: EventChanges, draft: EventDraft)] = []
+    var toUpdate: [(id: String, changes: EventChanges, draft: EventDraft, span: WriteSpan)] = []
     for s in sourceEvents {
-        let key = occKey(s.id, s.start)
+        // A recurring series expands to many occurrences sharing one id; copy it
+        // ONCE as a rule-bearing event, using the series anchor (its start/end +
+        // recurrenceRule) rather than each occurrence, so the target doesn't get
+        // one copy (and one invite mail) per occurrence.
+        let src: EventInfo
+        if s.recurring {
+            guard handledRecurring.insert(s.id).inserted else { continue }
+            src = store.event(id: s.id) ?? s
+        } else {
+            src = s
+        }
+        let key = syncKey(srcId: src.id, start: src.start, recurring: src.recurring)
         sourceKeys.insert(key)
-        let d = desiredDraft(s)
+        let d = desiredDraft(src)
         if let existing = syncedByKey[key] {
             if !upToDate(existing, d) {
+                // A recurring copy is written as the whole series (.futureEvents);
+                // a single event touches only itself (.thisEvent).
                 toUpdate.append((existing.id, EventChanges(
                     title: d.title, start: d.start, end: d.end, allDay: d.allDay,
-                    timeZoneId: d.timeZoneId, location: d.location, notes: d.notes, availability: d.availability
-                ), d))
+                    timeZoneId: d.timeZoneId, location: d.location, notes: d.notes,
+                    availability: d.availability, recurrenceRule: d.recurrenceRule
+                ), d, src.recurring ? .futureEvents : .thisEvent))
             }
         } else {
             toCreate.append(d)
@@ -209,8 +236,9 @@ public func runSync(
 
     var created = 0, updated = 0, deleted = 0
     for d in toCreate { _ = try store.createEvent(d); created += 1 }
-    for u in toUpdate { _ = try store.updateEvent(id: u.id, u.changes, span: .thisEvent); updated += 1 }
-    for t in toDelete { _ = try store.deleteEvent(id: t.id, span: .thisEvent); deleted += 1 }
+    for u in toUpdate { _ = try store.updateEvent(id: u.id, u.changes, span: u.span); updated += 1 }
+    // Recurring copies delete the whole series; single events delete just themselves.
+    for t in toDelete { _ = try store.deleteEvent(id: t.id, span: t.recurring ? .futureEvents : .thisEvent); deleted += 1 }
 
     if json {
         return .wrote(Output.jsonLine(SyncSummary(source: sources, target: dst.title, created: created, updated: updated, deleted: deleted)))

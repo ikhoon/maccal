@@ -1239,6 +1239,104 @@ do {
     c.eq(Set(copies.map { $0.title }), ["One", "Two"], "both calendars in the account are copied")
 }
 
+// MARK: sync — recurring series collapse to one rule-bearing copy
+
+@MainActor func recEvent(_ id: String, _ title: String, _ rule: RecurrenceRule, _ offsetHours: Double = 1) -> EventInfo {
+    EventInfo.fixture(id: id, title: title, calendar: "Work", calendarId: "cal-work",
+                      start: agToday.addingTimeInterval(offsetHours * hour),
+                      end: agToday.addingTimeInterval((offsetHours + 1) * hour),
+                      recurring: true, recurrenceRule: rule)
+}
+
+do {
+    // RecurrenceRule round-trips through Codable.
+    let rule = RecurrenceRule(frequency: .weekly, interval: 2, count: 10, daysOfWeek: [2, 4])
+    let back = try! JSONDecoder().decode(RecurrenceRule.self, from: JSONEncoder().encode(rule))
+    c.eq(back, rule, "RecurrenceRule round-trips through Codable")
+}
+
+do {
+    // a recurring series copies as exactly ONE rule-bearing event, not per-occurrence.
+    let daily = RecurrenceRule(frequency: .daily)
+    let s = syncStore([recEvent("R1", "Standup", daily)])
+    _ = try! syncRun(s)
+    let copies = syncedCopies(s)
+    c.eq(copies.count, 1, "recurring series → exactly one copy (no per-occurrence explosion)")
+    c.expect(copies[0].recurring, "the copy is itself recurring")
+    c.expect(copies[0].recurrenceRule == daily, "the recurrence rule is copied verbatim")
+    c.eq(copies[0].title, "Standup", "recurring copy keeps the title")
+    // idempotent re-sync
+    let r2 = try! syncRun(s)
+    c.expect(r2.output.contains("up to date"), "re-sync of a recurring series is a no-op")
+    c.eq(syncedCopies(s).count, 1, "re-sync doesn't duplicate the recurring copy")
+}
+
+do {
+    // recurring + single in one sync: recurring collapses to 1, single stays 1.
+    let weekly = RecurrenceRule(frequency: .weekly, interval: 1, daysOfWeek: [2])
+    let s = syncStore([recEvent("R1", "Weekly", weekly), srcEvent("S1", "One-off", 5)])
+    _ = try! syncRun(s)
+    let copies = syncedCopies(s)
+    c.eq(copies.count, 2, "one recurring + one single → two copies")
+    c.eq(copies.filter { $0.recurring }.count, 1, "exactly one recurring copy (the whole series)")
+    c.eq(copies.filter { !$0.recurring }.count, 1, "the single event still copies as a single")
+    c.expect(copies.first { $0.recurring }?.recurrenceRule == weekly, "the weekly rule is carried")
+}
+
+do {
+    // a source recurrence-rule change updates the copy in place, no duplicate.
+    let s = syncStore([recEvent("R1", "Rec", RecurrenceRule(frequency: .daily))])
+    _ = try! syncRun(s)
+    s.eventList[0] = recEvent("R1", "Rec", RecurrenceRule(frequency: .weekly, daysOfWeek: [2]))
+    let r = try! syncRun(s)
+    c.expect(r.performed, "a changed recurrence rule is detected")
+    c.eq(syncedCopies(s).count, 1, "rule change updates in place, no duplicate")
+    c.expect(syncedCopies(s)[0].recurrenceRule?.frequency == .weekly, "the copy's rule reflects the change")
+}
+
+do {
+    // RecurrenceRule normalizes in init: byday order-independent for equality,
+    // and count wins over until (mutually exclusive).
+    c.eq(RecurrenceRule(frequency: .weekly, daysOfWeek: [4, 2, 6]),
+         RecurrenceRule(frequency: .weekly, daysOfWeek: [2, 6, 4]),
+         "daysOfWeek order doesn't affect equality (sorted in init)")
+    c.eq(RecurrenceRule(frequency: .weekly, daysOfWeek: [4, 2]).daysOfWeek, [2, 4],
+         "daysOfWeek is stored sorted")
+    let both = RecurrenceRule(frequency: .daily, until: agToday, count: 5)
+    c.expect(both.until == nil && both.count == 5, "count wins: until is cleared when count is set")
+}
+
+do {
+    // a recurring UPDATE routes the whole series (.futureEvents), not one occurrence.
+    let s = syncStore([recEvent("R1", "Rec", RecurrenceRule(frequency: .daily))])
+    _ = try! syncRun(s)
+    s.eventList[0] = recEvent("R1", "Rec", RecurrenceRule(frequency: .weekly, daysOfWeek: [2]))
+    _ = try! syncRun(s)
+    c.eq(s.lastSpan, .futureEvents, "recurring update routes span .futureEvents (whole series)")
+}
+
+do {
+    // a recurring mirror-DELETE routes the whole series (.futureEvents).
+    let s = syncStore([recEvent("R1", "Rec", RecurrenceRule(frequency: .daily))])
+    _ = try! syncRun(s)
+    s.eventList.removeAll { $0.id == "R1" } // source series gone; the copy (fake id) remains
+    _ = try! syncRun(s)
+    c.eq(s.lastSpan, .futureEvents, "recurring mirror-delete routes span .futureEvents")
+    c.eq(syncedCopies(s).count, 0, "recurring copy removed once its series is gone")
+}
+
+do {
+    // a single event's update/delete still route .thisEvent.
+    let s = syncStore([srcEvent("S1", "One", 1)])
+    _ = try! syncRun(s)
+    s.eventList[0] = srcEvent("S1", "One EDITED", 1)
+    _ = try! syncRun(s)
+    c.eq(s.lastSpan, .thisEvent, "single-event update routes span .thisEvent")
+    s.eventList.removeAll { $0.id == "S1" }
+    _ = try! syncRun(s)
+    c.eq(s.lastSpan, .thisEvent, "single-event mirror-delete routes span .thisEvent")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

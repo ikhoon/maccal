@@ -58,6 +58,34 @@ public struct AttendeeInfo: Codable, Sendable, Equatable {
     }
 }
 
+/// A simplified recurrence rule (an RFC 5545 subset) — enough to mirror the
+/// common daily/weekly repeats as a single rule-bearing event instead of
+/// exploding a copy per occurrence. Monthly/yearly carry frequency+interval only.
+public struct RecurrenceRule: Codable, Sendable, Equatable {
+    public enum Frequency: String, Codable, Sendable {
+        case daily, weekly, monthly, yearly
+    }
+    public let frequency: Frequency
+    /// Repeat every `interval` units (>= 1).
+    public let interval: Int
+    /// End date, or nil. At most one of `until`/`count` is set (both nil = forever).
+    public let until: Date?
+    /// Total occurrence count, or nil.
+    public let count: Int?
+    /// Weekly byday: 1=Sun … 7=Sat (EKWeekday raw). Empty for non-weekly/default.
+    public let daysOfWeek: [Int]
+
+    public init(frequency: Frequency, interval: Int = 1, until: Date? = nil, count: Int? = nil, daysOfWeek: [Int] = []) {
+        self.frequency = frequency
+        self.interval = max(1, interval)
+        // `count` and `until` are mutually exclusive; when a count is given it wins.
+        self.count = count
+        self.until = count == nil ? until : nil
+        // Sort byday so equality doesn't depend on the order it was built in.
+        self.daysOfWeek = daysOfWeek.sorted()
+    }
+}
+
 /// One event occurrence. Recurring series are expanded to one EventInfo per
 /// occurrence; every occurrence shares `id` and differs by `start`.
 ///
@@ -92,6 +120,9 @@ public struct EventInfo: Codable, Sendable, Equatable {
     public let attendees: [AttendeeInfo]
     /// True when the event belongs to a recurring series.
     public let recurring: Bool
+    /// The recurrence rule when `recurring` (else nil). Sync copies this so a
+    /// repeating event mirrors as one rule-bearing event, not one per occurrence.
+    public let recurrenceRule: RecurrenceRule?
 
     public init(
         id: String,
@@ -109,7 +140,8 @@ public struct EventInfo: Codable, Sendable, Equatable {
         availability: String,
         organizer: String,
         attendees: [AttendeeInfo],
-        recurring: Bool
+        recurring: Bool,
+        recurrenceRule: RecurrenceRule? = nil
     ) {
         self.id = id
         self.calendar = calendar
@@ -127,6 +159,7 @@ public struct EventInfo: Codable, Sendable, Equatable {
         self.organizer = organizer
         self.attendees = attendees
         self.recurring = recurring
+        self.recurrenceRule = recurrenceRule
     }
 }
 
@@ -195,7 +228,8 @@ extension EventInfo {
             url: c.url ?? url,
             status: status,
             availability: c.availability ?? availability,
-            organizer: organizer, attendees: attendees, recurring: recurring
+            organizer: organizer, attendees: attendees, recurring: recurring,
+            recurrenceRule: c.recurrenceRule ?? recurrenceRule
         )
     }
 }
@@ -224,11 +258,14 @@ public struct EventDraft: Codable, Sendable, Equatable {
     public let url: String
     /// busy | free | tentative | unavailable.
     public let availability: String
+    /// Recurrence rule for the created event, or nil for a single event.
+    public let recurrenceRule: RecurrenceRule?
 
     public init(
         title: String, start: Date, end: Date, allDay: Bool = false,
         calendar: String? = nil, timeZoneId: String? = nil,
-        location: String = "", notes: String = "", url: String = "", availability: String = "busy"
+        location: String = "", notes: String = "", url: String = "", availability: String = "busy",
+        recurrenceRule: RecurrenceRule? = nil
     ) {
         self.title = title
         self.start = start
@@ -240,6 +277,7 @@ public struct EventDraft: Codable, Sendable, Equatable {
         self.notes = notes
         self.url = url
         self.availability = availability
+        self.recurrenceRule = recurrenceRule
     }
 }
 
@@ -256,11 +294,13 @@ public struct EventChanges: Sendable, Equatable {
     public var notes: String?
     public var url: String?
     public var availability: String?
+    /// Recurrence rule to apply; nil leaves the event's recurrence unchanged.
+    public var recurrenceRule: RecurrenceRule?
 
     public init(
         title: String? = nil, start: Date? = nil, end: Date? = nil, allDay: Bool? = nil,
         timeZoneId: String? = nil, location: String? = nil, notes: String? = nil,
-        url: String? = nil, availability: String? = nil
+        url: String? = nil, availability: String? = nil, recurrenceRule: RecurrenceRule? = nil
     ) {
         self.title = title
         self.start = start
@@ -271,12 +311,14 @@ public struct EventChanges: Sendable, Equatable {
         self.notes = notes
         self.url = url
         self.availability = availability
+        self.recurrenceRule = recurrenceRule
     }
 
     /// True when no field is set — the command layer maps this to "no changes".
     public var isEmpty: Bool {
         title == nil && start == nil && end == nil && allDay == nil && timeZoneId == nil
             && location == nil && notes == nil && url == nil && availability == nil
+            && recurrenceRule == nil
     }
 }
 
