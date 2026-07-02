@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>kr.ikhoon.maccalbar</string>
+  <key>CFBundleName</key><string>maccalbar</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>maccal syncs events between your calendars.</string>
+  <key>NSCalendarsUsageDescription</key><string>maccal syncs events between your calendars.</string>
+</dict>
+</plist>

@@ -32,6 +32,22 @@ let package = Package(
             ]
         ),
 
+        // Menu-bar app: runs `maccal sync` manually or on a launchd schedule.
+        // Reuses maccalCore.runSync; the sectcreate flags embed the Calendar
+        // usage-description keys the same way as `maccal` (EventKit needs them).
+        .executableTarget(
+            name: "maccalbar",
+            dependencies: ["maccalCore"],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Info-maccalbar.plist",
+                ]),
+            ]
+        ),
+
         // Tests as a plain executable (XCTest / swift-testing ship only with
         // full Xcode; this runs under the Command Line Tools alone via
         // `swift run maccalCheck`, and exits non-zero on any failure).
