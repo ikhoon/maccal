@@ -1021,6 +1021,208 @@ do {
     c.eq(Output.htmlToPlain("x<br><br><br>y"), "x\n\ny", "blank runs collapsed")
 }
 
+// MARK: sync — runSync one-way mirror (work → personal)
+
+@MainActor func syncStore(_ events: [EventInfo], targetWritable: Bool = true) -> FakeCalendarStore {
+    let work = CalendarInfo.fixture(title: "Work", calendarIdentifier: "cal-work")
+    let personal = CalendarInfo.fixture(title: "Personal", writable: targetWritable, calendarIdentifier: "cal-personal")
+    return FakeCalendarStore(calendars: [work, personal], events: events, defaultCalendar: personal)
+}
+@MainActor func srcEvent(_ id: String, _ title: String, _ offsetHours: Double,
+                         location: String = "", notes: String = "") -> EventInfo {
+    EventInfo.fixture(id: id, title: title, calendar: "Work", calendarId: "cal-work",
+                      start: agToday.addingTimeInterval(offsetHours * hour),
+                      end: agToday.addingTimeInterval((offsetHours + 1) * hour),
+                      location: location, notes: notes)
+}
+@MainActor func syncRun(_ s: FakeCalendarStore, detail: SyncDetail = .titleTimeLocation,
+                        noDelete: Bool = false, dryRun: Bool = false, confirm: Confirmer = AutoYes()) throws -> WriteResult {
+    try runSync(store: s, from: ["Work"], to: "Personal", since: nil, until: nil,
+                detail: detail, noDelete: noDelete, json: false, dryRun: dryRun,
+                confirm: confirm, now: kstNow, timeZone: kst)
+}
+@MainActor func syncedCopies(_ s: FakeCalendarStore) -> [EventInfo] {
+    s.events(in: DateInterval(start: agToday, end: agToday.addingTimeInterval(40 * day)), calendars: ["cal-personal"])
+}
+
+do {
+    // marker round-trips (srcId, start); non-markers are ignored.
+    let mk = makeSyncMarker(srcId: "W1:abc-123", start: agToday.addingTimeInterval(hour))
+    let p = parseSyncMarker(mk)
+    c.eq(p?.srcId, "W1:abc-123", "sync marker round-trips srcId")
+    c.eq(p?.start, agToday.addingTimeInterval(hour), "sync marker round-trips start")
+    c.expect(parseSyncMarker("https://example.com/x") == nil, "non-marker url → nil")
+    c.expect(parseSyncMarker("") == nil, "empty url → nil")
+}
+
+do {
+    // initial sync copies source events into the target, each with a marker.
+    let s = syncStore([srcEvent("W1", "Standup", 1, location: "Room 4F", notes: "sync me")])
+    let r = try! syncRun(s)
+    c.expect(r.performed, "sync writes on the first run")
+    let copies = syncedCopies(s)
+    c.eq(copies.count, 1, "sync creates one target copy")
+    c.eq(copies[0].title, "Standup", "copy keeps the title")
+    c.eq(copies[0].calendar, "Personal", "copy lands in the target calendar")
+    c.eq(copies[0].location, "Room 4F", "default detail copies location")
+    c.expect(copies[0].notes.isEmpty, "default detail does NOT copy notes")
+    c.eq(parseSyncMarker(copies[0].url)?.srcId, "W1", "copy carries a marker naming its source")
+}
+
+do {
+    // idempotent: a re-sync with no source change writes nothing, no duplicates.
+    let s = syncStore([srcEvent("W1", "Standup", 1)])
+    _ = try! syncRun(s)
+    let r2 = try! syncRun(s)
+    c.expect(r2.output.contains("up to date"), "second sync with no change is a no-op (reports 'up to date')")
+    c.eq(syncedCopies(s).count, 1, "re-sync does not duplicate the copy")
+}
+
+do {
+    // a changed source event updates its copy in place (no duplicate).
+    let s = syncStore([srcEvent("W1", "Standup", 1)])
+    _ = try! syncRun(s)
+    s.eventList[0] = srcEvent("W1", "Standup RENAMED", 1)
+    let r = try! syncRun(s)
+    c.expect(r.performed, "sync updates a changed source event")
+    let copies = syncedCopies(s)
+    c.eq(copies.count, 1, "update does not create a duplicate")
+    c.eq(copies[0].title, "Standup RENAMED", "the copy reflects the source edit")
+}
+
+do {
+    // mirror delete: a source occurrence that's gone removes its copy.
+    let s = syncStore([srcEvent("W1", "Standup", 1), srcEvent("W2", "Lunch", 3)])
+    _ = try! syncRun(s)
+    c.eq(syncedCopies(s).count, 2, "both copied initially")
+    s.eventList.removeAll { $0.id == "W2" }
+    let r = try! syncRun(s)
+    c.expect(r.performed, "sync removes a copy whose source is gone")
+    let copies = syncedCopies(s)
+    c.eq(copies.count, 1, "mirror deletes the orphaned copy")
+    c.eq(copies[0].title, "Standup", "the surviving copy is the one still in source")
+}
+
+do {
+    // --no-delete keeps an orphaned copy.
+    let s = syncStore([srcEvent("W1", "Standup", 1), srcEvent("W2", "Lunch", 3)])
+    _ = try! syncRun(s)
+    s.eventList.removeAll { $0.id == "W2" }
+    _ = try! syncRun(s, noDelete: true)
+    c.eq(syncedCopies(s).count, 2, "--no-delete keeps the orphaned copy")
+}
+
+do {
+    // busy detail hides the title and drops details.
+    let s = syncStore([srcEvent("W1", "Secret 1:1", 1, location: "Room 4F", notes: "sensitive")])
+    _ = try! syncRun(s, detail: .busy)
+    let copy = syncedCopies(s)[0]
+    c.eq(copy.title, "Busy", "busy detail replaces the title")
+    c.expect(copy.location.isEmpty, "busy detail drops the location")
+    c.expect(copy.notes.isEmpty, "busy detail drops notes")
+}
+
+do {
+    // notes detail copies the body.
+    let s = syncStore([srcEvent("W1", "Planning", 1, notes: "agenda: Q3")])
+    _ = try! syncRun(s, detail: .withNotes)
+    c.eq(syncedCopies(s)[0].notes, "agenda: Q3", "notes detail copies the body")
+}
+
+do {
+    // errors: same source/target, unknown source, read-only target.
+    let s = syncStore([srcEvent("W1", "X", 1)])
+    c.eq(caught { _ = try runSync(store: s, from: ["Work"], to: "Work", since: nil, until: nil, detail: .titleTimeLocation, noDelete: false, json: false, dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst) } as? WriteValidationError, .sameSourceTarget, "same --from/--to → sameSourceTarget")
+    c.eq(caught { _ = try runSync(store: s, from: ["Ghost"], to: "Personal", since: nil, until: nil, detail: .titleTimeLocation, noDelete: false, json: false, dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst) } as? WriteError, .calendarNotFound("Ghost"), "unknown source → calendarNotFound")
+    let ro = syncStore([srcEvent("W1", "X", 1)], targetWritable: false)
+    c.eq(caught { _ = try runSync(store: ro, from: ["Work"], to: "Personal", since: nil, until: nil, detail: .titleTimeLocation, noDelete: false, json: false, dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst) } as? WriteError, .notWritable, "read-only target → notWritable")
+}
+
+do {
+    // dry-run shows the plan and writes nothing.
+    let s = syncStore([srcEvent("W1", "Standup", 1)])
+    let r = try! syncRun(s, dryRun: true, confirm: AutoNo())
+    c.expect(!r.performed, "dry-run writes nothing")
+    c.expect(r.output.contains("would sync") && r.output.contains("Standup"), "dry-run shows the plan")
+    c.eq(syncedCopies(s).count, 0, "dry-run leaves the target empty")
+}
+
+do {
+    // declining the confirmation aborts without writing.
+    let s = syncStore([srcEvent("W1", "Standup", 1)])
+    c.eq(try! syncRun(s, confirm: AutoNo()), .aborted, "declining aborts the sync")
+    c.eq(syncedCopies(s).count, 0, "an aborted sync writes nothing")
+}
+
+do {
+    // "Account/Calendar" selector disambiguates a title shared across accounts.
+    let a = CalendarInfo.fixture(title: "Cal", source: "AcctA", calendarIdentifier: "cal-a")
+    let b = CalendarInfo.fixture(title: "Cal", source: "AcctB", calendarIdentifier: "cal-b")
+    let dst = CalendarInfo.fixture(title: "Dst", calendarIdentifier: "cal-dst")
+    let s = FakeCalendarStore(calendars: [a, b, dst], defaultCalendar: dst)
+    s.eventList = [EventInfo.fixture(id: "X", title: "E", calendar: "Cal", calendarId: "cal-a",
+                                     start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour))]
+    let run: (String) throws -> WriteResult = { sel in
+        try runSync(store: s, from: [sel], to: "Dst", since: nil, until: nil, detail: .titleTimeLocation,
+                    noDelete: false, json: false, dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst)
+    }
+    c.eq(caught { _ = try run("Cal") } as? WriteError, .ambiguousCalendar("Cal"), "bare title shared by two calendars → ambiguous")
+    c.expect(try! run("AcctA/Cal").performed, "Account/Calendar selector resolves the ambiguity")
+    c.eq(s.events(in: DateInterval(start: agToday, end: agToday.addingTimeInterval(40 * day)), calendars: ["cal-dst"]).count, 1, "one event copied from AcctA/Cal")
+}
+
+do {
+    // multiple --from sources union into one target.
+    let work = CalendarInfo.fixture(title: "Work", calendarIdentifier: "cal-work")
+    let team = CalendarInfo.fixture(title: "Team", calendarIdentifier: "cal-team")
+    let personal = CalendarInfo.fixture(title: "Personal", calendarIdentifier: "cal-personal")
+    let s = FakeCalendarStore(calendars: [work, team, personal], defaultCalendar: personal)
+    s.eventList = [
+        EventInfo.fixture(id: "W1", title: "Standup", calendar: "Work", calendarId: "cal-work", start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour)),
+        EventInfo.fixture(id: "T1", title: "Review", calendar: "Team", calendarId: "cal-team", start: agToday.addingTimeInterval(3 * hour), end: agToday.addingTimeInterval(4 * hour)),
+    ]
+    _ = try! runSync(store: s, from: ["Work", "Team"], to: "Personal", since: nil, until: nil, detail: .titleTimeLocation, noDelete: false, json: false, dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst)
+    let copies = s.events(in: DateInterval(start: agToday, end: agToday.addingTimeInterval(40 * day)), calendars: ["cal-personal"])
+    c.eq(copies.count, 2, "both --from sources are mirrored into one target")
+    c.eq(Set(copies.map { $0.title }), ["Standup", "Review"], "target holds the union of the sources")
+}
+
+do {
+    // busy mode forces availability to busy even when the source is free.
+    let s = syncStore([EventInfo.fixture(id: "W1", title: "1:1", calendar: "Work", calendarId: "cal-work",
+                                         start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour), availability: "free")])
+    _ = try! syncRun(s, detail: .busy)
+    let copy = syncedCopies(s)[0]
+    c.eq(copy.title, "Busy", "busy mode replaces the title")
+    c.eq(copy.availability, "busy", "busy mode forces availability to busy (source was free)")
+}
+
+do {
+    // duplicate copies of one source occurrence converge back to a single copy.
+    let s = syncStore([srcEvent("W1", "Standup", 1)])
+    _ = try! syncRun(s)
+    let dup = syncedCopies(s)[0]
+    s.eventList.append(EventInfo.fixture(id: "dupe", title: dup.title, calendar: dup.calendar, calendarId: dup.calendarId,
+                                         start: dup.start, end: dup.end, url: dup.url)) // same marker
+    c.eq(syncedCopies(s).count, 2, "two copies share the same marker")
+    _ = try! syncRun(s)
+    c.eq(syncedCopies(s).count, 1, "sync converges duplicate markers back to one copy")
+}
+
+do {
+    // a time-zone-only source change is detected and synced.
+    let tzEvent: (String) -> EventInfo = { tz in
+        EventInfo.fixture(id: "W1", title: "Call", calendar: "Work", calendarId: "cal-work",
+                          start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour), timeZone: tz)
+    }
+    let s = syncStore([tzEvent("Asia/Seoul")])
+    _ = try! syncRun(s)
+    c.eq(syncedCopies(s)[0].timeZone, "Asia/Seoul", "copy carries the source time zone")
+    s.eventList[0] = tzEvent("America/New_York")
+    c.expect(try! syncRun(s).performed, "a time-zone-only change is detected")
+    c.eq(syncedCopies(s)[0].timeZone, "America/New_York", "copy reflects the new time zone")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {
