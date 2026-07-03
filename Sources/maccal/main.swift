@@ -587,6 +587,9 @@ struct SyncCommand: ParsableCommand {
                 confirm: confirmer, now: Date(), timeZone: .current
             )
             try emit(result)
+            if case .wrote(let out) = result {
+                SyncStatus.record(at: Date(), summary: out.split(separator: "\n").first.map(String.init) ?? "")
+            }
         } catch let e as MaccalError {
             FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
             throw ExitCode(1)
