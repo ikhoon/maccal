@@ -14,10 +14,11 @@
     <string>maccal</string>
     <key>CFBundleExecutable</key>
     <string>maccal</string>
+    <!-- Placeholder; release.sh stamps the real git version into the .app bundle. -->
     <key>CFBundleShortVersionString</key>
-    <string>0.5.0</string>
+    <string>dev</string>
     <key>CFBundleVersion</key>
-    <string>0.5.0</string>
+    <string>dev</string>
     <!-- macOS 14+ full-access prompt text. -->
     <key>NSCalendarsFullAccessUsageDescription</key>
     <string>maccal reads and edits your calendar events from the command line.</string>
