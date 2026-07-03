@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# package.sh — build a universal (arm64 + x86_64) maccalbar.app menu-bar app,
+# package.sh — build a universal (arm64 + x86_64) maccal.app menu-bar app,
 # codesign it, and zip it as a release artifact.
 #
-# maccalbar is a menu-bar (LSUIElement) app that runs `maccal sync` manually or
-# on a launchd schedule. It shells out to the installed `maccal` CLI for the
-# background job, so install maccal first (`brew install ikhoon/tap/maccal`).
+# This is the menu-bar companion to the maccal CLI: a menu-bar (LSUIElement) app
+# that runs `maccal sync` manually or on a launchd schedule. It shells out to the
+# installed `maccal` CLI for the background job, so install maccal first
+# (`brew install ikhoon/tap/maccal`).
+#
+# The bundle is named maccal.app and shows as "maccal" in the menu bar, but keeps
+# its own bundle identifier (kr.ikhoon.maccalbar) — distinct from the CLI bundle —
+# so its macOS Calendar (TCC) grant is tracked separately and survives rebuilds.
+# CFBundleExecutable stays "maccalbar" (the built product); only the name shown
+# to the user is "maccal". Building both slices + lipo avoids needing full Xcode.
 #
 # Usage:
-#   ./package.sh            # → dist/maccalbar-<version>-macos-universal.zip (+ sha256)
-#
-# A stable ad-hoc identifier (kr.ikhoon.maccalbar) keeps the macOS Calendar TCC
-# grant across rebuilds. Building both slices + lipo avoids needing full Xcode.
+#   ./package.sh            # → dist/maccal-menubar-<version>-macos-universal.zip (+ sha256)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +35,7 @@ ARM=".build/arm64-apple-macosx/release/maccalbar"
 X86=".build/x86_64-apple-macosx/release/maccalbar"
 
 DIST="dist"
-APP="${DIST}/maccalbar.app"
+APP="${DIST}/maccal.app"
 MACOS_DIR="${APP}/Contents/MacOS"
 rm -rf "$APP"
 mkdir -p "$MACOS_DIR"
@@ -49,8 +53,8 @@ cat > "${APP}/Contents/Info.plist" <<EOF
   <key>CFBundleIdentifier</key><string>${IDENTIFIER}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>maccalbar</string>
-  <key>CFBundleDisplayName</key><string>maccal sync</string>
+  <key>CFBundleName</key><string>maccal</string>
+  <key>CFBundleDisplayName</key><string>maccal</string>
   <key>CFBundleExecutable</key><string>maccalbar</string>
   <key>CFBundleShortVersionString</key><string>${VERSION#v}</string>
   <key>CFBundleVersion</key><string>${VERSION#v}</string>
@@ -69,9 +73,9 @@ codesign --sign - \
   --force --options runtime \
   "$APP"
 
-ZIP="${DIST}/maccalbar-${VERSION}-macos-universal.zip"
-( cd "$DIST" && rm -f "maccalbar-${VERSION}-macos-universal.zip" \
-  && ditto -c -k --sequesterRsrc --keepParent maccalbar.app "maccalbar-${VERSION}-macos-universal.zip" )
+ZIP="${DIST}/maccal-menubar-${VERSION}-macos-universal.zip"
+( cd "$DIST" && rm -f "maccal-menubar-${VERSION}-macos-universal.zip" \
+  && ditto -c -k --sequesterRsrc --keepParent maccal.app "maccal-menubar-${VERSION}-macos-universal.zip" )
 
 echo
 echo "package: artifact → ${ZIP}"
@@ -79,6 +83,6 @@ echo "package: archs    → $(lipo -archs "${MACOS_DIR}/maccalbar")"
 echo "package: sha256   → $(shasum -a 256 "$ZIP" | awk '{print $1}')"
 echo
 echo "Next:"
-echo "  1. Unzip and drag maccalbar.app to /Applications."
+echo "  1. Unzip and drag maccal.app to /Applications."
 echo "  2. Launch it — a calendar icon appears in the menu bar."
-echo "  3. Pick Sources + Target, then toggle 'Run in background'."
+echo "  3. Open Settings…, pick Sources + Target, then toggle 'Run in background'."

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>kr.ikhoon.maccalbar</string>
-  <key>CFBundleName</key><string>maccalbar</string>
+  <key>CFBundleName</key><string>maccal</string>
   <key>NSCalendarsFullAccessUsageDescription</key><string>maccal syncs events between your calendars.</string>
   <key>NSCalendarsUsageDescription</key><string>maccal syncs events between your calendars.</string>
 </dict>
