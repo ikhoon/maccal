@@ -44,14 +44,6 @@ enum Settings {
         }
         set { d.set(newValue.rawValue, forKey: "detailRaw") }
     }
-    static var lastSyncAt: Date? {
-        get { d.object(forKey: "lastSyncAt") as? Date }
-        set { d.set(newValue, forKey: "lastSyncAt") }
-    }
-    static var lastSyncCounts: String? {
-        get { d.string(forKey: "lastSyncCounts") }
-        set { d.set(newValue, forKey: "lastSyncCounts") }
-    }
 }
 
 // MARK: - installed CLI resolution
@@ -460,9 +452,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         } else if syncing {
             addDisabled(menu, "Syncing…", symbol: "arrow.triangle.2.circlepath")
         } else {
-            if let at = Settings.lastSyncAt {
-                let counts = Settings.lastSyncCounts.map { "   \($0)" } ?? ""
-                addDisabled(menu, "Last synced \(shortTime(at))\(counts)", symbol: "checkmark.circle")
+            if let last = SyncStatus.last() { // manual OR background sync (shared file)
+                let counts = abbreviate(last.summary).map { "   \($0)" } ?? ""
+                addDisabled(menu, "Last synced \(shortTime(last.date))\(counts)", symbol: "checkmark.circle")
             } else if let r = lastResult {
                 addDisabled(menu, r) // no successful sync yet — show the latest outcome (e.g. an error)
             }
@@ -535,8 +527,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         syncing = false
         updateIcon()
         if ok {
-            Settings.lastSyncAt = Date()
-            Settings.lastSyncCounts = abbreviate(msg)
+            SyncStatus.record(at: Date(), summary: msg) // shared with the background CLI job
             lastResult = nil
         } else {
             lastResult = "⚠︎ \(msg)"
