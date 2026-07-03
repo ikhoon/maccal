@@ -1419,6 +1419,35 @@ do {
     c.expect(!s.seriesOccurrences(id: copyId, in: win).contains(w2), "cancellation still applied after the update")
 }
 
+// MARK: SyncAgent (menu-bar app's launchd job spec)
+
+do {
+    let argv = SyncAgent.argv(maccalPath: "/x/maccal", sources: ["A", "B/C"], target: "T", detail: .withNotes)
+    c.eq(argv, ["/x/maccal", "sync", "--from", "A", "--from", "B/C", "--to", "T", "--notes", "--yes"],
+         "argv: repeated --from, --to, --notes, trailing --yes")
+
+    c.eq(SyncAgent.argv(maccalPath: "/x/maccal", sources: ["A"], target: "T", detail: .busy),
+         ["/x/maccal", "sync", "--from", "A", "--to", "T", "--busy", "--yes"], "argv: .busy → --busy")
+
+    let plain = SyncAgent.argv(maccalPath: "/x/maccal", sources: ["A"], target: "T", detail: .titleTimeLocation)
+    c.eq(plain, ["/x/maccal", "sync", "--from", "A", "--to", "T", "--yes"],
+         "argv: .titleTimeLocation adds neither flag")
+
+    let plist = SyncAgent.launchdPlist(
+        maccalPath: "/x/maccal", sources: ["A", "B/C"], target: "T", detail: .withNotes, intervalMinutes: 30)
+    c.eq(plist["Label"] as? String, SyncAgent.label, "plist Label")
+    c.eq(plist["StartInterval"] as? Int, 30 * 60, "plist StartInterval = minutes * 60")
+    c.eq(plist["ProgramArguments"] as? [String],
+         SyncAgent.argv(maccalPath: "/x/maccal", sources: ["A", "B/C"], target: "T", detail: .withNotes),
+         "plist ProgramArguments == argv")
+    c.expect(plist["RunAtLoad"] as? Bool == true, "plist RunAtLoad")
+
+    // interval is clamped to a positive number of seconds
+    let clamped = SyncAgent.launchdPlist(
+        maccalPath: "/x/maccal", sources: ["A"], target: "T", detail: .busy, intervalMinutes: 0)
+    c.eq(clamped["StartInterval"] as? Int, 60, "plist StartInterval clamps 0 → 60s")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {
