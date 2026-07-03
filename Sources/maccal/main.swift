@@ -534,8 +534,8 @@ struct SyncCommand: ParsableCommand {
         Examples:
           $ maccal sync --from "Google/Team" --to "iCloud/Mirror" --dry-run
           $ maccal sync --from Meetings --from Reviews --to Mirror --until +14d --yes
-          $ maccal sync --from Meetings --to Mirror --busy --yes     # hide details
           $ maccal sync --from Meetings --to Mirror --notes          # include the body
+          $ maccal sync --from Meetings --to Mirror --no-location     # omit the location
 
         Run it periodically (e.g. a launchd/cron job with --yes) to stay in sync.
         """
@@ -556,8 +556,8 @@ struct SyncCommand: ParsableCommand {
     @Flag(name: .long, help: "Also copy the notes/body (default: title, time, location only).")
     var notes = false
 
-    @Flag(name: .long, help: "Copy as opaque 'Busy' with time only — hides all details. Excludes --notes.")
-    var busy = false
+    @Flag(name: .long, help: "Omit the location (default: include it).")
+    var noLocation = false
 
     @Flag(name: .long, help: "Keep target copies whose source was deleted (default: mirror-delete them).")
     var noDelete = false
@@ -572,9 +572,10 @@ struct SyncCommand: ParsableCommand {
     var yes = false
 
     func run() throws {
-        if notes, busy { throw ValidationError("--notes and --busy are mutually exclusive") }
         if from.isEmpty { throw ValidationError("at least one --from is required") }
-        let detail: SyncDetail = busy ? .busy : (notes ? .withNotes : .titleTimeLocation)
+        var detail: SyncDetail = [.title, .location]
+        if noLocation { detail.remove(.location) }
+        if notes { detail.insert(.notes) }
         let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "sync")
         let store = EKEventStore()
         CalendarAccess.require(store: store, needsWrite: !dryRun) // dry-run only reads

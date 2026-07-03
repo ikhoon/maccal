@@ -12,16 +12,15 @@ public enum SyncAgent {
     public static let label = "kr.ikhoon.maccal-sync"
 
     /// The `maccal sync … --yes` command line for the given settings —
-    /// `[maccal, sync, (--from S)…, --to T, (--notes|--busy)?, --yes]`.
+    /// `[maccal, sync, (--from S)…, --to T, (--no-location|--notes)…, --yes]`.
+    /// Detail is an OptionSet, so each field maps to its own flag (location off →
+    /// --no-location; notes on → --notes).
     public static func argv(maccalPath: String, sources: [String], target: String, detail: SyncDetail) -> [String] {
         var a = [maccalPath, "sync"]
         for s in sources { a += ["--from", s] }
         a += ["--to", target]
-        switch detail {
-        case .withNotes: a.append("--notes")
-        case .busy: a.append("--busy")
-        case .titleTimeLocation: break
-        }
+        if !detail.contains(.location) { a.append("--no-location") }
+        if detail.contains(.notes) { a.append("--notes") }
         a.append("--yes")
         return a
     }

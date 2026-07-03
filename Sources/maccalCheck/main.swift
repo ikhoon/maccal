@@ -1113,13 +1113,13 @@ do {
 }
 
 do {
-    // busy detail hides the title and drops details.
+    // location/notes off drop those fields but keep the (mandatory) title.
     let s = syncStore([srcEvent("W1", "Secret 1:1", 1, location: "Room 4F", notes: "sensitive")])
-    _ = try! syncRun(s, detail: .busy)
+    _ = try! syncRun(s, detail: [.title])
     let copy = syncedCopies(s)[0]
-    c.eq(copy.title, "Busy", "busy detail replaces the title")
-    c.expect(copy.location.isEmpty, "busy detail drops the location")
-    c.expect(copy.notes.isEmpty, "busy detail drops notes")
+    c.eq(copy.title, "Secret 1:1", "title is always kept")
+    c.expect(copy.location.isEmpty, "location off drops the location")
+    c.expect(copy.notes.isEmpty, "notes off drops notes")
 }
 
 do {
@@ -1185,16 +1185,6 @@ do {
     let copies = s.events(in: DateInterval(start: agToday, end: agToday.addingTimeInterval(40 * day)), calendars: ["cal-personal"])
     c.eq(copies.count, 2, "both --from sources are mirrored into one target")
     c.eq(Set(copies.map { $0.title }), ["Standup", "Review"], "target holds the union of the sources")
-}
-
-do {
-    // busy mode forces availability to busy even when the source is free.
-    let s = syncStore([EventInfo.fixture(id: "W1", title: "1:1", calendar: "Work", calendarId: "cal-work",
-                                         start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour), availability: "free")])
-    _ = try! syncRun(s, detail: .busy)
-    let copy = syncedCopies(s)[0]
-    c.eq(copy.title, "Busy", "busy mode replaces the title")
-    c.eq(copy.availability, "busy", "busy mode forces availability to busy (source was free)")
 }
 
 do {
@@ -1426,8 +1416,10 @@ do {
     c.eq(argv, ["/x/maccal", "sync", "--from", "A", "--from", "B/C", "--to", "T", "--notes", "--yes"],
          "argv: repeated --from, --to, --notes, trailing --yes")
 
-    c.eq(SyncAgent.argv(maccalPath: "/x/maccal", sources: ["A"], target: "T", detail: .busy),
-         ["/x/maccal", "sync", "--from", "A", "--to", "T", "--busy", "--yes"], "argv: .busy → --busy")
+    // Independent detail toggles: title on, location off, notes on.
+    c.eq(SyncAgent.argv(maccalPath: "/x/maccal", sources: ["A"], target: "T", detail: [.title, .notes]),
+         ["/x/maccal", "sync", "--from", "A", "--to", "T", "--no-location", "--notes", "--yes"],
+         "argv: [.title,.notes] → --no-location --notes")
 
     let plain = SyncAgent.argv(maccalPath: "/x/maccal", sources: ["A"], target: "T", detail: .titleTimeLocation)
     c.eq(plain, ["/x/maccal", "sync", "--from", "A", "--to", "T", "--yes"],
@@ -1444,7 +1436,7 @@ do {
 
     // interval is clamped to a positive number of seconds
     let clamped = SyncAgent.launchdPlist(
-        maccalPath: "/x/maccal", sources: ["A"], target: "T", detail: .busy, intervalMinutes: 0)
+        maccalPath: "/x/maccal", sources: ["A"], target: "T", detail: .titleTimeLocation, intervalMinutes: 0)
     c.eq(clamped["StartInterval"] as? Int, 60, "plist StartInterval clamps 0 → 60s")
 }
 

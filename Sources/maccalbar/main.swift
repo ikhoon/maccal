@@ -38,19 +38,19 @@ enum Settings {
     }
     static var detail: SyncDetail {
         get {
-            switch d.string(forKey: "detail") {
-            case "notes": return .withNotes
-            case "busy": return .busy
-            default: return .titleTimeLocation
-            }
+            d.object(forKey: "detailRaw") == nil
+                ? [.title, .location]                         // default: title + location
+                : SyncDetail(rawValue: d.integer(forKey: "detailRaw"))
         }
-        set {
-            switch newValue {
-            case .withNotes: d.set("notes", forKey: "detail")
-            case .busy: d.set("busy", forKey: "detail")
-            case .titleTimeLocation: d.set("title", forKey: "detail")
-            }
-        }
+        set { d.set(newValue.rawValue, forKey: "detailRaw") }
+    }
+    static var lastSyncAt: Date? {
+        get { d.object(forKey: "lastSyncAt") as? Date }
+        set { d.set(newValue, forKey: "lastSyncAt") }
+    }
+    static var lastSyncCounts: String? {
+        get { d.string(forKey: "lastSyncCounts") }
+        set { d.set(newValue, forKey: "lastSyncCounts") }
     }
 }
 
@@ -180,12 +180,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let sourceStack = NSStackView()
     private let targetPopup = NSPopUpButton()
     private let intervalPopup = NSPopUpButton()
-    private let detailPopup = NSPopUpButton()
+    private var detailChecks: [NSButton] = []
 
     private static let intervals: [(tag: Int, label: String)] =
         [(15, "15 minutes"), (30, "30 minutes"), (60, "1 hour"), (120, "2 hours"), (360, "6 hours")]
-    private static let details: [(tag: Int, label: String, detail: SyncDetail)] =
-        [(0, "Title + time + location", .titleTimeLocation), (1, "＋ Notes", .withNotes), (2, "Busy only", .busy)]
+    // Title is mandatory (always copied). Location/Notes are independent toggles.
+    private static let detailFields: [(label: String, option: SyncDetail)] =
+        [("Location", .location), ("Notes", .notes)]
 
     init(onChange: @escaping () -> Void) {
         self.onChange = onChange
@@ -210,7 +211,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         reloadSources()
         reloadTarget()
         if let i = Self.intervals.firstIndex(where: { $0.tag == Settings.intervalMinutes }) { intervalPopup.selectItem(at: i) }
-        if let i = Self.details.firstIndex(where: { $0.detail == Settings.detail }) { detailPopup.selectItem(at: i) }
+        syncDetailChecks()
         window?.center()
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
@@ -240,9 +241,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         targetPopup.target = self;   targetPopup.action = #selector(targetChanged)
         intervalPopup.target = self; intervalPopup.action = #selector(intervalChanged)
-        detailPopup.target = self;   detailPopup.action = #selector(detailChanged)
         for i in Self.intervals { intervalPopup.addItem(withTitle: i.label); intervalPopup.lastItem?.tag = i.tag }
-        for d in Self.details { detailPopup.addItem(withTitle: d.label); detailPopup.lastItem?.tag = d.tag }
+        let titleCheck = NSButton(checkboxWithTitle: "Title", target: nil, action: nil)
+        titleCheck.tag = -2 // mandatory + read-only (shown checked, disabled)
+        titleCheck.isEnabled = false
+        titleCheck.toolTip = "Always included (title is mandatory)"
+        detailChecks = [titleCheck] + Self.detailFields.enumerated().map { idx, f in
+            let cb = NSButton(checkboxWithTitle: f.label, target: self, action: #selector(detailToggled(_:)))
+            cb.tag = idx // 0=Location, 1=Notes
+            return cb
+        }
 
         let done = NSButton(title: "Done", target: self, action: #selector(closeSettings))
         done.keyEquivalent = "\r"
@@ -251,12 +259,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let doneRow = NSStackView(views: [NSView(), done]) // spacer pushes Done to the right
         doneRow.orientation = .horizontal
 
-        let targetRow = formRow("Target", targetPopup)
-        let intervalRow = formRow("Every", intervalPopup)
-        let detailRow = formRow("Detail", detailPopup)
+        let targetRow = formRow("Target", symbol: "calendar.badge.plus", targetPopup)
+        let intervalRow = formRow("Every", symbol: "clock", intervalPopup)
+        let detailBox = NSStackView(views: detailChecks)
+        detailBox.orientation = .horizontal
+        detailBox.spacing = 12
+        let detailRow = formRow("Detail", symbol: "list.bullet", detailBox)
 
         let root = NSStackView(views: [
-            sectionLabel("Sources"), scroll, targetRow, intervalRow, detailRow, doneRow,
+            sectionLabel("Sources", symbol: "calendar"), scroll, targetRow, intervalRow, detailRow, doneRow,
         ])
         root.orientation = .vertical
         root.alignment = .leading // rows start at the left; wide rows get an explicit width below
@@ -285,10 +296,17 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return container
     }
 
-    private func sectionLabel(_ s: String) -> NSTextField {
+    private func sectionLabel(_ s: String, symbol: String? = nil) -> NSView {
         let l = NSTextField(labelWithString: s)
         l.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
-        return l
+        guard let symbol, let img = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return l }
+        let icon = NSImageView(image: img)
+        icon.contentTintColor = .secondaryLabelColor
+        let row = NSStackView(views: [icon, l])
+        row.orientation = .horizontal
+        row.spacing = 5
+        row.alignment = .centerY
+        return row
     }
 
     private func groupHeader(_ s: String) -> NSTextField {
@@ -304,17 +322,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return l
     }
 
-    private func formRow(_ title: String, _ control: NSView) -> NSStackView {
-        let label = NSTextField(labelWithString: title)
-        label.alignment = .right
-        label.setContentHuggingPriority(.required, for: .horizontal)
-        label.setContentCompressionResistancePriority(.required, for: .horizontal)
-        label.widthAnchor.constraint(equalToConstant: 56).isActive = true
-        control.setContentHuggingPriority(.defaultLow, for: .horizontal) // pop-up fills the row
+    private func formRow(_ title: String, symbol: String, _ control: NSView) -> NSStackView {
+        let label = sectionLabel(title, symbol: symbol) // same bold style + icon as the section headers
         let row = NSStackView(views: [label, control])
-        row.orientation = .horizontal
-        row.spacing = 8
-        row.alignment = .centerY
+        row.orientation = .vertical
+        row.alignment = .leading // label + control both start at the left edge
+        row.spacing = 10 // match the gap under the "Sources" header (root spacing)
+        // control fills the row width, so it lines up left AND right with the box
+        control.widthAnchor.constraint(equalTo: row.widthAnchor).isActive = true
         return row
     }
 
@@ -325,9 +340,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             sourceStack.removeArrangedSubview(v)
             v.removeFromSuperview()
         }
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
+            sourceStack.addArrangedSubview(dimLabel("Grant Calendar access to choose sources."))
+            return
+        }
         let groups = calendarsByAccount(writableOnly: false)
         guard !groups.isEmpty else {
-            sourceStack.addArrangedSubview(dimLabel("Grant Calendar access to choose sources."))
+            sourceStack.addArrangedSubview(dimLabel("No calendars found."))
             return
         }
         let selected = Set(Settings.sources)
@@ -365,7 +384,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             menu.addItem(withTitle: "(no writable calendars)", action: nil, keyEquivalent: "")
         }
         targetPopup.menu = menu
-        if let it = toSelect { targetPopup.select(it) } else { targetPopup.select(nil) }
+        if let it = toSelect { targetPopup.select(it) }
+        else if menu.items.count == 1 { targetPopup.select(menu.items.first) } // lone placeholder — keep it visible
+        else { targetPopup.select(nil) }
     }
 
     // MARK: actions
@@ -392,10 +413,21 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         onChange()
     }
 
-    @objc private func detailChanged() {
-        let tag = detailPopup.selectedItem?.tag ?? 0
-        Settings.detail = Self.details.first { $0.tag == tag }?.detail ?? .titleTimeLocation
+    @objc private func detailToggled(_ sender: NSButton) {
+        var d = Settings.detail
+        let opt = Self.detailFields[sender.tag].option
+        if sender.state == .on { d.insert(opt) } else { d.remove(opt) }
+        Settings.detail = d
         onChange()
+    }
+
+    /// Reflect Settings.detail onto the checkboxes. Title is always on (mandatory,
+    /// shown disabled); Location/Notes reflect the current selection.
+    private func syncDetailChecks() {
+        for cb in detailChecks {
+            if cb.tag == -2 { cb.state = .on; continue } // Title: mandatory
+            cb.state = Settings.detail.contains(Self.detailFields[cb.tag].option) ? .on : .off
+        }
     }
 
     @objc private func closeSettings() { window?.close() }
@@ -406,7 +438,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private var statusLine = "Never synced"
+    private var lastResult: String?   // last manual-sync outcome, shown when present
     private var syncing = false
     private var settingsWC: SettingsWindowController?
 
@@ -423,10 +455,23 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func rebuild(_ menu: NSMenu) {
         menu.removeAllItems()
-        addDisabled(menu, statusLine)
-        if !Settings.sources.isEmpty, !Settings.target.isEmpty {
+        if Settings.sources.isEmpty || Settings.target.isEmpty {
+            addDisabled(menu, "Set sources + target in Settings")
+        } else if syncing {
+            addDisabled(menu, "Syncing…", symbol: "arrow.triangle.2.circlepath")
+        } else {
+            if let at = Settings.lastSyncAt {
+                let counts = Settings.lastSyncCounts.map { "   \($0)" } ?? ""
+                addDisabled(menu, "Last synced \(shortTime(at))\(counts)", symbol: "checkmark.circle")
+            } else if let r = lastResult {
+                addDisabled(menu, r) // no successful sync yet — show the latest outcome (e.g. an error)
+            }
             addDisabled(menu, "Auto-syncing every \(intervalLabel(Settings.intervalMinutes))",
                         symbol: "clock.arrow.2.circlepath")
+            // show the selected sources → target so they're visible without opening
+            // Settings; direction icons distinguish outgoing sources from the target
+            for s in Settings.sources { addDisabled(menu, shortName(s), symbol: "arrow.down.circle") }
+            addDisabled(menu, shortName(Settings.target), symbol: "arrow.up.circle")
         }
         menu.addItem(.separator())
         add(menu, syncing ? "Syncing…" : "Sync now", #selector(syncNow),
@@ -452,9 +497,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func syncNow() {
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { requestAccess(); return }
         let sources = Settings.sources, target = Settings.target, detail = Settings.detail
-        guard !sources.isEmpty, !target.isEmpty else { statusLine = "Open Settings to pick sources + target"; return }
+        guard !sources.isEmpty, !target.isEmpty else { return } // the menu already prompts for this
         syncing = true
-        statusLine = "Syncing…"
         updateIcon()
         // This Task inherits the MainActor, so `self` is only ever touched on the
         // main actor — never sent into a child task. The blocking sync runs in a
@@ -490,8 +534,13 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func finishSync(ok: Bool, msg: String) {
         syncing = false
         updateIcon()
-        let t = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .short)
-        statusLine = ok ? "✓ \(t)  \(msg)" : "⚠︎ \(msg)"
+        if ok {
+            Settings.lastSyncAt = Date()
+            Settings.lastSyncCounts = abbreviate(msg)
+            lastResult = nil
+        } else {
+            lastResult = "⚠︎ \(msg)"
+        }
     }
 
     @objc private func toggleLogin() { LoginItem.toggle() }
@@ -514,8 +563,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateIcon() {
         guard let b = statusItem.button else { return }
         // A calendar with a small sync badge at rest; while a sync is in flight,
-        // swap to the plain circular-arrows glyph and spin it (spinning the
-        // composite would rotate the calendar too, which looks wrong).
+        // swap to the plain circular-arrows glyph and spin it.
         if syncing {
             b.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "syncing…")
             startSpin(b)
@@ -525,31 +573,46 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    /// Composite tray icon: a calendar with a small "sync" (circular arrows)
-    /// badge punched into its lower-right corner. SF Symbols has no single
-    /// calendar+sync glyph, so we draw one; `isTemplate` lets the menu bar tint it.
+    /// A large sync ring (circular arrows) with a small calendar centred inside
+    /// it. Both symbols are centre-symmetric, so the menu bar centres the icon
+    /// cleanly (no drift), and the calendar sits in the ring's empty middle with
+    /// no overlap. `isTemplate` lets the menu bar tint it.
     private static func calendarSyncIcon() -> NSImage? {
-        let calCfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-        let badgeCfg = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
-        guard let cal = NSImage(systemSymbolName: "calendar", accessibilityDescription: "maccal sync")?
-                .withSymbolConfiguration(calCfg),
-              let badge = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: nil)?
-                .withSymbolConfiguration(badgeCfg)
+        let syncCfg = NSImage.SymbolConfiguration(pointSize: 16, weight: .light)
+        let calCfg = NSImage.SymbolConfiguration(pointSize: 8, weight: .regular) // simple, symmetric, no dots
+        guard let sync = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "maccal sync")?
+                .withSymbolConfiguration(syncCfg),
+              let cal = NSImage(systemSymbolName: "square", accessibilityDescription: nil)?
+                .withSymbolConfiguration(calCfg)
         else { return nil }
 
-        let size = cal.size
+        let size = sync.size
         let img = NSImage(size: size)
         img.lockFocus()
-        cal.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1)
-        // A small sync badge tucked into the lower-right corner (like macrec's
-        // mic badge). Clear a little well first so it reads separately from the
-        // calendar grid, then draw the glyph at its natural (small) size.
-        let bs = badge.size
-        let origin = NSPoint(x: size.width - bs.width, y: 0)
-        NSGraphicsContext.current?.compositingOperation = .clear
-        NSBezierPath(ovalIn: NSRect(origin: origin, size: bs).insetBy(dx: -1, dy: -1)).fill()
-        NSGraphicsContext.current?.compositingOperation = .sourceOver
-        badge.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+        sync.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1)
+        // small square centred inside the ring — `square` is symmetric, so plain
+        // centring lands true (no nudge, unlike the asymmetric calendar glyph).
+        let calOrigin = NSPoint(x: (size.width - cal.size.width) / 2,
+                                y: (size.height - cal.size.height) / 2)
+        cal.draw(at: calOrigin, from: .zero, operation: .sourceOver, fraction: 1)
+        NSColor.black.setFill()
+        // thicken the square's top edge (calendar-header hint): left edge flush
+        // with the square, right edge pulled in a touch so it doesn't overrun.
+        let barH: CGFloat = 1.3
+        NSBezierPath(rect: NSRect(x: calOrigin.x + 1,
+                                  y: calOrigin.y + cal.size.height - barH - 0.5,
+                                  width: cal.size.width - 3, height: barH)).fill()
+        // four tiny dots (2×2) inside the square — a hint of calendar day marks;
+        // nudged slightly left to sit centred in the square glyph
+        let dot: CGFloat = 1.2
+        let cx = calOrigin.x + cal.size.width / 2 - 0.5
+        let cy = calOrigin.y + cal.size.height / 2 - 0.5
+        let gap: CGFloat = 2.4
+        for dx in [-gap / 2, gap / 2] {
+            for dy in [-gap / 2, gap / 2] {
+                NSBezierPath(ovalIn: NSRect(x: cx + dx - dot / 2, y: cy + dy - dot / 2, width: dot, height: dot)).fill()
+            }
+        }
         img.unlockFocus()
         img.isTemplate = true
         return img
@@ -593,6 +656,29 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case 360: return "6 hours"
         default: return "\(mins) min"
         }
+    }
+
+    private func shortName(_ selector: String) -> String {
+        selector.split(separator: "/").last.map(String.init) ?? selector
+    }
+
+    private func shortTime(_ date: Date) -> String {
+        DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .short)
+    }
+
+    /// Condense runSync's human line to just the counts, so the menu doesn't grow
+    /// wide: "synced: <label>   +5 new  ~2 changed  -1 removed  ✂3 cancelled"
+    /// becomes "+5 ~2 -1 ✂3".
+    private func abbreviate(_ line: String) -> String? {
+        guard let r = line.range(of: "   +") else { return nil } // counts start after the label
+        let counts = line[r.lowerBound...]
+            .replacingOccurrences(of: " new", with: "")
+            .replacingOccurrences(of: " changed", with: "")
+            .replacingOccurrences(of: " removed", with: "")
+            .replacingOccurrences(of: " cancelled", with: "")
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespaces)
+        return counts.isEmpty ? nil : counts
     }
 
     @discardableResult
