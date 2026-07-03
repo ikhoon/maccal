@@ -24,15 +24,24 @@
 
 import Foundation
 
-/// How much of each source event to copy into the target.
-public enum SyncDetail: Sendable, Equatable {
-    case titleTimeLocation   // default: title + when + location
-    case withNotes           // + notes body
-    case busy                // opaque "Busy", time only (max privacy)
+/// Which fields of each source event to copy into the target. Independent
+/// toggles (AND), not exclusive levels: turn title/location/notes on or off in
+/// any combination. Turning title off yields an opaque "Busy" (time only).
+public struct SyncDetail: OptionSet, Sendable, Equatable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
 
-    var showsRealTitle: Bool { self != .busy }
-    var showsLocation: Bool { self != .busy }
-    var showsNotes: Bool { self == .withNotes }
+    public static let title = SyncDetail(rawValue: 1 << 0)     // real title, else opaque "Busy"
+    public static let location = SyncDetail(rawValue: 1 << 1)
+    public static let notes = SyncDetail(rawValue: 1 << 2)
+
+    // Presets used by the CLI and tests.
+    public static let titleTimeLocation: SyncDetail = [.title, .location]
+    public static let withNotes: SyncDetail = [.title, .location, .notes]
+
+    var showsRealTitle: Bool { contains(.title) }
+    var showsLocation: Bool { contains(.location) }
+    var showsNotes: Bool { contains(.notes) }
 }
 
 private let syncScheme = "maccal-sync"
@@ -144,8 +153,14 @@ public func runSync(
     // converges back to exactly one copy.
     var syncedByKey: [String: EventInfo] = [:]
     var duplicates: [EventInfo] = []
+    var seenSeries = Set<String>()   // a recurring copy expands to many occurrences sharing one id
     for t in targetEvents {
         guard let m = parseSyncMarker(t.url) else { continue }
+        // A recurring copy comes back as many occurrences with the SAME id; count
+        // it once. Otherwise its other occurrences look like duplicate copies and
+        // get queued for deletion — the first delete drops the whole series, and
+        // the rest then fail "event not found".
+        if t.recurring, !seenSeries.insert(t.id).inserted { continue }
         let key = syncKey(srcId: m.srcId, start: m.start, recurring: t.recurring)
         if syncedByKey[key] == nil { syncedByKey[key] = t } else { duplicates.append(t) }
     }
@@ -153,11 +168,7 @@ public func runSync(
     // What we WANT in the target for a given source occurrence.
     func desiredDraft(_ s: EventInfo) -> EventDraft {
         let title = detail.showsRealTitle ? (s.title.isEmpty ? "(untitled)" : s.title) : "Busy"
-        // In busy mode force availability to busy too — copying "free" would leak
-        // that the hidden block is low-priority.
-        let avail = detail == .busy
-            ? "busy"
-            : (["busy", "free", "tentative", "unavailable"].contains(s.availability) ? s.availability : "busy")
+        let avail = ["busy", "free", "tentative", "unavailable"].contains(s.availability) ? s.availability : "busy"
         return EventDraft(
             title: title, start: s.start, end: s.end, allDay: s.allDay,
             calendar: dst.calendarIdentifier,
