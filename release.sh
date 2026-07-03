@@ -36,6 +36,9 @@ mkdir -p "$MACOS_DIR"
 echo "release: lipo → universal"
 lipo -create -output "${MACOS_DIR}/maccal" "$ARM" "$X86"
 cp "${SCRIPT_DIR}/Info.plist" "${APP}/Contents/Info.plist"
+# Stamp the git version into the bundle so `maccal --version` is accurate.
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION#v}" "${APP}/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION#v}" "${APP}/Contents/Info.plist"
 
 echo "release: codesigning ($IDENTIFIER)…"
 codesign --sign - \
