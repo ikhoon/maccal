@@ -767,7 +767,9 @@ do {
     let s = syncStore([EventInfo.fixture(id: "R", title: "Weekly", calendar: "Work", calendarId: "cal-work",
                                          start: agToday.addingTimeInterval(day), end: agToday.addingTimeInterval(day + hour),
                                          location: "Room A", recurring: true)])
-    let handle = Output.occurrenceHandle(id: "R", start: agToday.addingTimeInterval(2 * day))
+    let d2 = agToday.addingTimeInterval(2 * day)
+    s.seriesOccurrenceDates["R"] = [agToday.addingTimeInterval(day), d2]  // real occurrences (as agenda would show)
+    let handle = Output.occurrenceHandle(id: "R", start: d2)
     if case .wrote(let out) = try! edit(s, id: handle, location: "Room B") {
         c.expect(out.contains("Room B"), "edit occurrence applies a non-schedule change")
     } else { c.expect(false, "edit occurrence returns .wrote") }
