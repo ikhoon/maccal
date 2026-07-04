@@ -1,10 +1,23 @@
-# maccal
+<p align="center">
+  <img src="assets/maccal-logo.png" alt="maccal logo" width="150" height="150">
+</p>
 
-**A fast, scriptable macOS Calendar CLI.** List, search, read, and edit your
-calendar events from the terminal — no OAuth, no API tokens, no Full Disk Access.
-It's backed by EventKit (the local store macOS already syncs), and the only
-permission it needs is **Calendars**, granted to *maccal itself* rather than your
-terminal.
+<h1 align="center">maccal</h1>
+
+<p align="center">
+  <b>A fast, scriptable macOS Calendar CLI</b> — with an optional menu-bar sync app.<br>
+  List, search, add, edit, and mirror your calendar events from the terminal — no OAuth, no API tokens, no Full Disk Access.
+</p>
+
+<p align="center">
+  <a href="https://github.com/ikhoon/maccal/actions/workflows/ci.yml"><img src="https://github.com/ikhoon/maccal/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
+<p align="center">
+  <sub>Part of the <code>mac*</code> family ·
+  <a href="https://github.com/ikhoon/macmail">macmail</a> (mail) ·
+  <a href="https://github.com/ikhoon/macrec">macrec</a> (meeting recorder)</sub>
+</p>
 
 ```console
 $ maccal agenda --calendar Work
@@ -13,13 +26,19 @@ $ maccal agenda --calendar Work
 2026-06-23T17:00:00+09:00   1:1 with Sam     1A2B…@example.com
 ```
 
+Backed by **EventKit** — the local store macOS already syncs from your accounts —
+so the only permission it needs is **Calendars**, granted to *maccal itself*
+rather than your terminal.
+
 - ⚡ **Fast** — reads the local EventKit store directly; no network.
 - 🔒 **Minimal permission** — maccal holds its *own* Calendar grant (not the
   terminal's), so you don't expose every program in your terminal to your
   calendar. See [Calendar access](#calendar-access-one-time).
 - 🤖 **Scriptable** — `--json` (NDJSON) on every command, made for `jq` / LLM
   pipelines. Destructive commands confirm by default and take `--yes` / `--dry-run`.
-- 🗓️ **Full CRUD** — `calendars` · `agenda` · `show` · `search` · `add` · `edit` · `rm`.
+- 🗓️ **Full CRUD + sync** — `calendars` · `agenda` · `show` · `search` · `add` · `edit` · `rm` · `sync`.
+- 🖥️ **Optional menu-bar app** — scheduled background calendar-to-calendar sync.
+  See [Menu-bar app](#menu-bar-sync-app-maccalapp).
 
 ---
 
@@ -32,31 +51,38 @@ $ maccal agenda --calendar Work
   - Write: [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`sync`](#sync) · [`auth`](#auth)
 - [Menu-bar sync app](#menu-bar-sync-app-maccalapp) — scheduled background sync
 - [Dates & durations](#dates--durations) · [Scripting with JSON](#scripting-with-json) · [Shell completion](#shell-completion)
-- [How it works](#how-it-works) · [Troubleshooting](#troubleshooting) · [Development](#development)
+- [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [Privacy](#privacy) · [Requirements](#requirements) · [Development](#development)
 
 ---
 
 ## Install
 
+Universal (Apple Silicon + Intel). Homebrew is the easy path — its download isn't
+quarantined, so there's no Gatekeeper prompt.
+
 ### Homebrew (recommended)
 
 ```console
-$ brew install ikhoon/tap/maccal
+$ brew install ikhoon/tap/maccal             # CLI only
+$ brew install --cask ikhoon/tap/maccal-app  # CLI + menu-bar sync app
 ```
 
-Installs the universal (Apple Silicon + Intel) `maccal.app`, puts `maccal` on your
-`PATH`, and sets up shell completions. No Gatekeeper prompt — brew doesn't
-quarantine the download. Then authorize Calendar access once: `maccal auth`.
+Both put `maccal` on your `PATH`, so pick one — the cask bundles the CLI. Then
+authorize Calendar access once with `maccal auth` (see
+[Calendar access](#calendar-access-one-time)); for the app, see the
+[menu-bar app](#menu-bar-sync-app-maccalapp) section.
 
-> Want scheduled background sync too? Also install the
-> [menu-bar app](#menu-bar-sync-app-maccalapp).
+<details>
+<summary><b>Other install methods</b> — release zip · from source</summary>
 
-### Download from Releases
+#### Download from Releases
 
-Grab `maccal-<version>-macos-universal.zip` from the **Releases** page, then:
+Grab `maccal-<version>-macos-universal.zip` (CLI) or
+`maccal-menubar-<version>-macos-universal.zip` (app) from the **Releases** page.
+For the CLI:
 
 ```console
-$ unzip maccal-v0.2.0-macos-universal.zip
+$ unzip maccal-<version>-macos-universal.zip
 $ xattr -dr com.apple.quarantine maccal.app    # not notarized — clear Gatekeeper quarantine
 $ mkdir -p ~/.local/lib ~/.local/bin
 $ mv maccal.app ~/.local/lib/
@@ -66,25 +92,27 @@ $ ln -s ~/.local/lib/maccal.app/Contents/MacOS/maccal ~/.local/bin/maccal
 The `xattr` step is only needed for a manual download (the build is ad-hoc signed,
 not notarized); brew and a local build don't need it.
 
-### From source
+#### From source
 
 ```console
-$ git clone <repo-url> ~/src/maccal
+$ git clone https://github.com/ikhoon/maccal ~/src/maccal
 $ cd ~/src/maccal
 $ ./install.sh
 ```
 
 `install.sh` compiles a release build, packages it as a `~/.local/lib/maccal.app`
-bundle (so it gets its own row in Calendar privacy settings), codesigns it with a
-stable identifier, symlinks the executable to `~/.local/bin/maccal`, and installs
-shell completions. Requires the Swift toolchain (`xcode-select --install`). For a
-distributable **universal** build (arm64 + x86_64, zipped for a release), use
-`./release.sh` instead. Make sure `~/.local/bin` is on your `PATH`:
+bundle (its own row in Calendar privacy settings), codesigns it with a stable
+identifier, symlinks the executable to `~/.local/bin/maccal`, and installs shell
+completions. Requires the Swift toolchain (`xcode-select --install`). For a
+distributable universal build, use `./release.sh` (CLI) or `./package.sh` (app).
+Make sure `~/.local/bin` is on your `PATH`:
 
 ```console
 $ which maccal        # → /Users/you/.local/bin/maccal
 $ maccal --help
 ```
+
+</details>
 
 ## Calendar access (one-time)
 
@@ -504,26 +532,6 @@ line to add before `compinit`).
 
 ---
 
-## How it works
-
-```
-maccal <subcommand>
-   │  (disclaims TCC responsibility, then…)
-   ├── read paths  ─► EKEventStore (local store; no network)
-   └── write paths ─► EKEventStore.save / .remove (commit immediately)
-```
-
-- maccal is packaged as a **`.app` bundle** and **disclaims TCC responsibility**
-  at startup (a one-shot `posix_spawn` re-exec), so macOS attributes the Calendar
-  grant to `maccal.app` instead of the host terminal — its own row in settings,
-  usable from any terminal.
-- All logic lives behind a `CalendarStore` protocol, so commands are unit-tested
-  against an in-memory fake — no TCC, EventKit, or network in the test suite.
-
-*Non-goals: reminders, server-side rules, account management.*
-
----
-
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -532,7 +540,91 @@ maccal <subcommand>
 | **"this is a recurring event"** | `edit`/`rm` on a recurring series need `--all-occurrences` (per-occurrence edits aren't supported yet). |
 | **"the event's calendar is read-only"** | Subscribed/holiday calendars can't be modified — pick a writable one (`maccal calendars --writable`). |
 | **"refusing to … without --yes"** | Non-interactive (piped/cron) writes need `--yes`; there's no TTY to confirm on. |
-| **`maccal: command not found`** | `~/.local/bin` isn't on `PATH`. Check with `which maccal`. |
+| **`maccal: command not found`** | `~/.local/bin` (source) or `/opt/homebrew/bin` (brew) isn't on `PATH`. Check with `which maccal`. |
+| **Background sync doesn't run** | Open the [menu-bar app](#menu-bar-sync-app-maccalapp), set sources + a target, grant it Calendar access. Enable "Keep awake for sync" if the Mac idles. |
+
+---
+
+## How it works
+
+> Skip this unless you're curious or hacking on maccal.
+
+Everything goes through **EventKit** — the same local store the Calendar app uses,
+which macOS already syncs from your accounts. maccal never talks to a calendar
+server itself.
+
+```
+maccal <subcommand>
+   │  (re-execs once to disclaim TCC responsibility, then…)
+   ├── read paths  ─► EKEventStore  (local store; no network)
+   └── write paths ─► EKEventStore.save / .remove  (commit immediately)
+
+maccal.app (menu-bar)
+   └─ launchd job ─► maccal sync … --yes  (bundled CLI, on your interval)
+```
+
+**Design notes** — the deliberate choices maccal is built around:
+
+- **Calendar access is keyed to maccal, not your terminal.** maccal is an `.app`
+  bundle and **disclaims TCC responsibility** at startup (a one-shot `posix_spawn`
+  re-exec), so macOS attributes the grant to `maccal.app` — its own row in
+  Settings, usable from every terminal (Terminal, iTerm, VS Code, …).
+- **The menu-bar app bundles the CLI.** Background sync shells out to the copy of
+  `maccal` inside `maccal.app`, signed with the app's identity so it **shares the
+  app's Calendar grant** — no separate `brew install`, no second prompt.
+- **Sync only ever touches its own copies.** Each mirrored event carries a hidden
+  marker in its URL (`maccal-sync://<epoch>/<srcId>`), so re-runs add/update/delete
+  exactly maccal's copies and never your real events in the target.
+- **Recurring series resolve to their anchor.** An `eventIdentifier` carries no
+  occurrence date, so `edit`/`rm` on a repeat require `--all-occurrences` rather
+  than silently hitting the wrong instance.
+- **Date math is DST-correct.** Windows, durations, and keep-duration edits add
+  calendar components (not raw seconds), so a 1h meeting stays 1h across a
+  spring-forward boundary.
+- **All logic sits behind a `CalendarStore` protocol**, unit-tested against an
+  in-memory fake — no TCC, EventKit, or network in the test suite.
+
+*Non-goals: reminders, server-side rules, account management.*
+
+<details>
+<summary>Per-command internals</summary>
+
+- **`calendars`** — `EKEventStore.calendars(for: .event)`, mapped to title /
+  account / source-type / writability / color; `--source` filters by account.
+- **`agenda` / `search`** — one bounded `events(in:calendars:)` fetch, then pure
+  filtering/sorting; `search` substring-matches the mapped DTOs (title/location/
+  notes) since EventKit has no text predicate for events.
+- **`show`** — resolves one event by id; HTML notes (Google/Exchange) render to
+  plain text.
+- **`add` / `edit` / `rm`** — build a sparse `EventDraft`/`EventChanges`, gate on
+  a write grant, confirm (or `--yes`), then `save`/`remove`; `edit` shows a
+  before→after diff on `--dry-run`.
+- **`sync`** — fetches source + target over the window, matches by URL marker,
+  computes add/update/delete; a recurring source mirrors as one rule-bearing
+  event, not one copy per occurrence.
+
+</details>
+
+---
+
+## Privacy
+
+maccal is local-first — nothing about your calendar leaves your machine.
+
+- **No network.** Everything goes through EventKit's local store; maccal never
+  contacts a calendar server, API, or telemetry endpoint.
+- **Minimal, self-owned permission.** The only grant is Calendars, keyed to
+  `maccal.app` (and separately the menu-bar app) — not your terminal.
+- **maccal stores nothing of its own.** Settings live in the app's `UserDefaults`
+  plus a tiny last-sync record; there's no database or cache of your events.
+
+---
+
+## Requirements
+
+- **Running it:** macOS 14 (Sonoma) or later — Apple Silicon or Intel (the release
+  build is universal). Nothing else: no network, no tokens.
+- **Building from source:** the Swift toolchain (`xcode-select --install`).
 
 ---
 
@@ -547,3 +639,25 @@ $ swift run maccalCheck    # run the pure test suite (no Calendar access needed)
 driving the pure `run*` functions against `FakeCalendarStore`. EventKit, TCC, and
 the CLI wiring are macOS-only and verified by hand; the suite covers the parsing,
 filtering, formatting, and command logic.
+
+<details>
+<summary>Project layout</summary>
+
+```
+maccal/
+├── Sources/
+│   ├── maccalCore/               # all logic (testable; no @main / EventKit needed)
+│   │   ├── Commands/             # one runX function per subcommand
+│   │   ├── CalendarStore.swift   # protocol seam + EventInfo/EventDraft DTOs
+│   │   ├── EKCalendarStore.swift # the real EventKit-backed store
+│   │   ├── Sync.swift  SyncAgent.swift  SyncStatus.swift  AppVersion.swift
+│   │   └── DateWindow.swift  DateTime.swift  Output.swift  Permission.swift
+│   ├── maccal/                   # thin ArgumentParser CLI wiring (@main)
+│   ├── maccalbar/                # menu-bar app (AppKit, NSStatusItem)
+│   └── maccalCheck/              # dependency-free test harness
+├── release.sh                    # universal CLI .app → dist zip (formula artifact)
+├── package.sh                    # menu-bar app + bundled CLI → dist zip (cask); --install
+└── Package.swift  Info.plist  ROADMAP.md
+```
+
+</details>
