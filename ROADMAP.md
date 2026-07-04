@@ -100,9 +100,9 @@ One-way mirror of one or more source calendars into a target calendar over a win
 
 ### From the M3 (write) review
 
-- **Recurring `edit`/`rm` require `--all-occurrences`.** Since an id resolves a series to its anchor (not the seen
-  occurrence), a per-occurrence write would silently hit the wrong one — so it's refused with a clear error until
-  occurrence-qualified ids land.
+- **Recurring `edit` requires `--all-occurrences`; `rm` can skip one occurrence.** agenda/search print an
+  occurrence handle (`id@epoch`) for recurring rows, and `rm <handle>` cancels just that occurrence (EXDATE).
+  `edit` on a repeat still needs `--all-occurrences` (per-occurrence detach-edit is a follow-up).
 - **Exit codes for writes:** `0` = wrote / dry-ran; `1` = nothing written (validation error, not-found, read-only,
   store failure, **declined prompt**, or non-TTY refusal); `2` = the permission gate. So `maccal rm X && next` won't run
   `next` on a decline.

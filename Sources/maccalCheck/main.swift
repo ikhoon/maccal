@@ -1420,6 +1420,31 @@ do {
 }
 
 do {
+    // occurrence handle round-trips; email-like / plain ids are not handles.
+    let d = agToday.addingTimeInterval(day)
+    let h = Output.occurrenceHandle(id: "S1", start: d)
+    c.eq(Output.parseOccurrenceHandle(h)?.id, "S1", "occurrence handle round-trips id")
+    c.expect(Output.parseOccurrenceHandle(h).map { abs($0.start.timeIntervalSince(d)) < 1 } ?? false,
+             "occurrence handle round-trips start")
+    c.expect(Output.parseOccurrenceHandle("abc@example.com") == nil, "email-like id is not an occurrence handle")
+    c.expect(Output.parseOccurrenceHandle("plainid") == nil, "plain id → nil")
+}
+
+do {
+    // rm <id>@<epoch> cancels just that occurrence (EXDATE), leaving the rest.
+    let s = syncStore([EventInfo.fixture(id: "R", title: "Weekly", calendar: "Work", calendarId: "cal-work",
+                                         start: agToday.addingTimeInterval(day), end: agToday.addingTimeInterval(day + hour),
+                                         recurring: true)])
+    let d1 = agToday.addingTimeInterval(day), d2 = agToday.addingTimeInterval(2 * day)
+    s.seriesOccurrenceDates["R"] = [d1, d2]
+    let win = DateInterval(start: agToday, end: agToday.addingTimeInterval(30 * day))
+    _ = try! runRm(store: s, id: Output.occurrenceHandle(id: "R", start: d2),
+                   allOccurrences: false, json: false, dryRun: false, confirm: AutoYes(), timeZone: kst)
+    c.expect(!s.seriesOccurrences(id: "R", in: win).contains(d2), "rm <id>@<epoch> cancels that occurrence")
+    c.expect(s.seriesOccurrences(id: "R", in: win).contains(d1), "other occurrences of the series remain")
+}
+
+do {
     // end-to-end: a source series that dropped an occurrence gets that occurrence
     // cancelled on the copy too (reflecting the source-side cancellation).
     let s = syncStore([recEvent("R1", "Standup", RecurrenceRule(frequency: .daily))])
