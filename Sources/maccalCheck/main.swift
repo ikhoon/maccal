@@ -1529,6 +1529,52 @@ do {
     c.eq(clamped["StartInterval"] as? Int, 60, "plist StartInterval clamps 0 → 60s")
 }
 
+// MARK: color — ANSI output (opt-in via `color:`)
+
+do {
+    // paint: off passes through, on wraps, multiple styles stack in order.
+    c.eq(Output.paint("x", .cyan, enabled: false), "x", "paint off → unchanged")
+    c.eq(Output.paint("x", .cyan, enabled: true), "\u{001B}[36mx\u{001B}[0m", "paint cyan wraps")
+    c.eq(Output.paint("x", .bold, .red, enabled: true), "\u{001B}[1m\u{001B}[31mx\u{001B}[0m", "paint stacks styles")
+    c.eq(Output.paint("x", enabled: true), "x", "paint with no styles → unchanged")
+
+    // colorSwatch: truecolor dot + hex, robust to off / bad input.
+    c.eq(Output.colorSwatch("#FF0000", enabled: true), "\u{001B}[38;2;255;0;0m●\u{001B}[0m #FF0000", "swatch truecolor")
+    c.eq(Output.colorSwatch("#FF0000", enabled: false), "#FF0000", "swatch off → hex")
+    c.eq(Output.colorSwatch("nope", enabled: true), "nope", "swatch bad hex → unchanged")
+
+    // stripANSI round-trips paint and leaves plain text alone.
+    c.eq(Output.stripANSI(Output.paint("hi", .cyan, .bold, enabled: true)), "hi", "stripANSI removes codes")
+    c.eq(Output.stripANSI("plain"), "plain", "stripANSI leaves plain text")
+
+    // command output: color on emits ANSI, off is plain, JSON stays plain.
+    let ev = EventInfo.fixture(id: "C1", title: "Standup", start: kstNow, end: kstNow.addingTimeInterval(1800))
+    let store = FakeCalendarStore(events: [ev])
+    let aColor = try! runAgenda(store: store, json: false, color: true, now: kstNow, timeZone: kst)
+    let aPlain = try! runAgenda(store: store, json: false, color: false, now: kstNow, timeZone: kst)
+    c.expect(aColor.contains("\u{001B}["), "agenda color:true emits ANSI")
+    c.expect(!aPlain.contains("\u{001B}["), "agenda color:false is plain")
+    c.eq(Output.stripANSI(aColor), aPlain, "agenda colored strips back to the plain output")
+    c.expect(!(try! runAgenda(store: store, json: true, color: true, now: kstNow, timeZone: kst)).contains("\u{001B}["),
+             "agenda --json ignores color (NDJSON stays plain)")
+
+    let sColor = try! runSearch(store: store, query: "Standup", json: false, color: true, now: kstNow, timeZone: kst)
+    c.expect(sColor.contains("\u{001B}["), "search color:true emits ANSI")
+
+    // calendars: rw green + a truecolor swatch derived from the hex.
+    let cstore = FakeCalendarStore(calendars: [.fixture(title: "Work", writable: true, color: "#00FF00")])
+    let calColor = runCalendars(store: cstore, json: false, color: true)
+    c.expect(calColor.contains("\u{001B}[32m"), "calendars color → rw green")
+    c.expect(calColor.contains("38;2;0;255;0"), "calendars color → truecolor swatch from hex")
+    c.expect(!runCalendars(store: cstore, json: false, color: false).contains("\u{001B}["), "calendars color:false plain")
+
+    // show: dim labels.
+    let shColor = runShow(store: store, id: "C1", json: false, color: true, timeZone: kst).output
+    c.expect(shColor.contains("\u{001B}[2m"), "show color → dim labels")
+    c.expect(!runShow(store: store, id: "C1", json: false, color: false, timeZone: kst).output.contains("\u{001B}["),
+             "show color:false plain")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

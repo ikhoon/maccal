@@ -13,20 +13,22 @@ public func runShow(
     store: CalendarStore,
     id: String,
     json: Bool,
+    color: Bool = false,
     timeZone: TimeZone = .current
 ) -> (output: String, found: Bool) {
     guard let event = store.event(id: id) else { return ("", false) }
-    return (json ? Output.jsonLine(event) : eventDetailText(event, timeZone: timeZone), true)
+    return (json ? Output.jsonLine(event) : eventDetailText(event, timeZone: timeZone, color: color), true)
 }
 
 /// A vertically labeled block: core fields, then attendees, then the full notes
 /// body after a blank line. Empty fields are omitted so the block stays tight.
 /// Shared by `show` and the write commands' previews/echoes.
-public func eventDetailText(_ e: EventInfo, timeZone: TimeZone) -> String {
+public func eventDetailText(_ e: EventInfo, timeZone: TimeZone, color: Bool = false) -> String {
     var lines: [String] = []
     func row(_ label: String, _ value: String) {
         guard !value.isEmpty else { return }
-        lines.append(label.padding(toLength: 14, withPad: " ", startingAt: 0) + value)
+        let paddedLabel = label.padding(toLength: 14, withPad: " ", startingAt: 0)
+        lines.append(Output.paint(paddedLabel, .dim, enabled: color) + value)
     }
 
     let when = e.allDay

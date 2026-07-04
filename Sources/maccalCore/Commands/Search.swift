@@ -37,6 +37,7 @@ public func runSearch(
     to: String? = nil,
     max: Int = 10,
     countOnly: Bool = false,
+    color: Bool = false,
     now: Date,
     timeZone: TimeZone = .current
 ) throws -> String {
@@ -65,9 +66,12 @@ public func runSearch(
     let multiCalendar = Set(shown.map(\.calendar)).count > 1
     // Columns: when · [calendar] · title · id (human bits first, long id last).
     let rows = shown.map { ev -> [String] in
-        let when = Output.when(ev, timeZone: timeZone)
+        let when = Output.paint(Output.when(ev, timeZone: timeZone), .cyan, enabled: color)
         let title = Output.sanitize(ev.title)
-        return multiCalendar ? [when, Output.sanitize(ev.calendar), title, ev.id] : [when, title, ev.id]
+        let id = Output.paint(ev.id, .dim, enabled: color)
+        return multiCalendar
+            ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, id]
+            : [when, title, id]
     }
     var out = Output.tsv(rows)
     if total > shown.count {
