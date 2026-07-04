@@ -465,6 +465,9 @@ struct EditCommand: ParsableCommand {
     @Option(name: .long, help: "busy|free|tentative|unavailable.")
     var availability: String?
 
+    @Option(name: .long, help: "Move the event to this calendar (title or identifier; must be writable).")
+    var calendar: String?
+
     @Flag(name: .long, help: "For a recurring series, apply to this and all future occurrences.")
     var allOccurrences = false
 
@@ -486,6 +489,7 @@ struct EditCommand: ParsableCommand {
                 store: EKCalendarStore(store: store),
                 id: id, title: title, start: start, end: end, duration: duration, tz: tz,
                 location: location, notes: notes, url: url, availability: availability,
+                calendar: calendar,
                 allOccurrences: allOccurrences, json: json, dryRun: dryRun, confirm: confirmer,
                 now: Date(), timeZone: .current
             )

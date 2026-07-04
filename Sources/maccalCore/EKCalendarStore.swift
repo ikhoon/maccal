@@ -113,6 +113,7 @@ public final class EKCalendarStore: CalendarStore {
         if let u = changes.url { ev.url = u.isEmpty ? nil : URL(string: u) }
         if let av = changes.availability { ev.availability = Self.availabilityValue(av) }
         if let rule = changes.recurrenceRule { ev.recurrenceRules = [Self.ekRecurrenceRule(rule)] }
+        if let sel = changes.calendar { ev.calendar = try resolveWritableCalendar(sel) }
 
         do {
             try store.save(ev, span: Self.ekSpan(span), commit: true)

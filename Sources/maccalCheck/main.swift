@@ -704,7 +704,8 @@ do {
 
 @MainActor func editStore() -> FakeCalendarStore {
     let work = CalendarInfo.fixture(title: "Work", calendarIdentifier: "cal-work")
-    let s = FakeCalendarStore(calendars: [work], defaultCalendar: work)
+    let personal = CalendarInfo.fixture(title: "Personal", calendarIdentifier: "cal-personal")
+    let s = FakeCalendarStore(calendars: [work, personal], defaultCalendar: work)
     s.eventList = [EventInfo.fixture(
         id: "E1", title: "Orig", calendar: "Work", calendarId: "cal-work",
         start: kstCal.date(from: DateComponents(year: 2026, month: 6, day: 20, hour: 10))!,
@@ -716,10 +717,10 @@ do {
 
 @MainActor func edit(_ s: FakeCalendarStore, id: String = "E1", title: String? = nil, start: String? = nil, end: String? = nil,
           duration: String? = nil, tz: String? = nil, location: String? = nil, notes: String? = nil, url: String? = nil,
-          availability: String? = nil, allOccurrences: Bool = false, json: Bool = false, dryRun: Bool = false,
+          availability: String? = nil, calendar: String? = nil, allOccurrences: Bool = false, json: Bool = false, dryRun: Bool = false,
           confirm: Confirmer = AutoYes()) throws -> WriteResult {
     try runEdit(store: s, id: id, title: title, start: start, end: end, duration: duration, tz: tz,
-                location: location, notes: notes, url: url, availability: availability,
+                location: location, notes: notes, url: url, availability: availability, calendar: calendar,
                 allOccurrences: allOccurrences, json: json, dryRun: dryRun, confirm: confirm, now: kstNow, timeZone: kst)
 }
 
@@ -728,6 +729,16 @@ do {
     c.expect(try! edit(s, title: "Renamed").performed, "edit applies the change")
     c.eq(s.event(id: "E1")?.title, "Renamed", "edit changes the title")
     c.eq(s.event(id: "E1")?.location, "Old", "edit leaves untouched fields")
+}
+
+do {
+    // --calendar moves the event to another (writable) calendar.
+    let s = editStore()
+    _ = try! edit(s, calendar: "Personal")
+    c.eq(s.event(id: "E1")?.calendar, "Personal", "edit --calendar moves the event")
+    c.eq(s.event(id: "E1")?.calendarId, "cal-personal", "moved event's calendarId updates")
+    c.eq(caught { _ = try edit(s, calendar: "Nope") } as? WriteError, .calendarNotFound("Nope"),
+         "unknown --calendar → calendarNotFound")
 }
 
 do {
@@ -762,7 +773,7 @@ do {
     )]
     let now = laCal.date(from: DateComponents(year: 2026, month: 3, day: 1))!
     _ = try! runEdit(store: s, id: "E1", title: nil, start: "2026-03-15T12:00", end: nil, duration: nil,
-                     tz: nil, location: nil, notes: nil, url: nil, availability: nil,
+                     tz: nil, location: nil, notes: nil, url: nil, availability: nil, calendar: nil,
                      allOccurrences: false, json: false, dryRun: false, confirm: AutoYes(), now: now, timeZone: la)
     c.eq(s.event(id: "E1")?.end, laCal.date(from: DateComponents(year: 2026, month: 3, day: 17, hour: 12))!,
          "edit keep-duration preserves wall-clock span across DST (end 12:00, not 11:00)")

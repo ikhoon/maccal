@@ -217,7 +217,7 @@ extension EventInfo {
     public func applying(_ c: EventChanges) -> EventInfo {
         let resultAllDay = c.allDay ?? allDay
         return EventInfo(
-            id: id, calendar: calendar, calendarId: calendarId,
+            id: id, calendar: c.calendar ?? calendar, calendarId: calendarId,
             title: c.title ?? title,
             start: c.start ?? start,
             end: c.end ?? end,
@@ -296,11 +296,14 @@ public struct EventChanges: Sendable, Equatable {
     public var availability: String?
     /// Recurrence rule to apply; nil leaves the event's recurrence unchanged.
     public var recurrenceRule: RecurrenceRule?
+    /// Move the event to this calendar (title or identifier); nil leaves it put.
+    public var calendar: String?
 
     public init(
         title: String? = nil, start: Date? = nil, end: Date? = nil, allDay: Bool? = nil,
         timeZoneId: String? = nil, location: String? = nil, notes: String? = nil,
-        url: String? = nil, availability: String? = nil, recurrenceRule: RecurrenceRule? = nil
+        url: String? = nil, availability: String? = nil, recurrenceRule: RecurrenceRule? = nil,
+        calendar: String? = nil
     ) {
         self.title = title
         self.start = start
@@ -312,13 +315,14 @@ public struct EventChanges: Sendable, Equatable {
         self.url = url
         self.availability = availability
         self.recurrenceRule = recurrenceRule
+        self.calendar = calendar
     }
 
     /// True when no field is set — the command layer maps this to "no changes".
     public var isEmpty: Bool {
         title == nil && start == nil && end == nil && allDay == nil && timeZoneId == nil
             && location == nil && notes == nil && url == nil && availability == nil
-            && recurrenceRule == nil
+            && recurrenceRule == nil && calendar == nil
     }
 }
 
