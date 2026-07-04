@@ -88,6 +88,14 @@ final class FakeCalendarStore: CalendarStore {
         return updated
     }
 
+    func updateOccurrence(id: String, occurrence: Date, _ changes: EventChanges) throws -> EventInfo {
+        guard let series = eventList.first(where: { $0.id == id }), series.recurring else { throw WriteError.notFound(id) }
+        try ensureWritable(series)
+        lastSpan = .thisEvent
+        // A detached occurrence at `occurrence`, with the (non-schedule) changes applied.
+        return series.detachedOccurrence(at: occurrence).applying(changes)
+    }
+
     func deleteEvent(id: String, span: WriteSpan) throws -> EventInfo {
         guard let idx = eventList.firstIndex(where: { $0.id == id }) else { throw WriteError.notFound(id) }
         try ensureWritable(eventList[idx])

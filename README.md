@@ -333,6 +333,7 @@ maccal edit <id> --title "Renamed" --yes
 maccal edit <id> --start "tomorrow 16:00"        # end shifts to keep duration
 maccal edit <id> --notes "" --yes                # empty string clears the field
 maccal edit <id> --calendar Personal --yes       # move the event to another calendar
+maccal edit "<id>@<epoch>" --location "Room 4F"  # just one occurrence (non-schedule fields)
 maccal edit <id> --notes "Agenda attached" --all-occurrences   # whole recurring series
 ```
 
@@ -570,7 +571,7 @@ line to add before `compinit`).
 | Symptom | Fix |
 |---|---|
 | **"Calendar access denied / needs full access"** | Run `maccal auth` once in an interactive Terminal, click Allow. Reset with `tccutil reset Calendar kr.ikhoon.maccal`. |
-| **"this is a recurring event"** | `edit` on a recurring series needs `--all-occurrences`. To skip a single occurrence, `rm` the `id@epoch` handle that agenda/search print for recurring rows. |
+| **"this is a recurring event"** | Use the `id@epoch` handle (agenda/search print it for recurring rows) to `edit`/`rm` a single occurrence, or `--all-occurrences` for the whole series. |
 | **"the event's calendar is read-only"** | Subscribed/holiday calendars can't be modified — pick a writable one (`maccal calendars --writable`). |
 | **"refusing to … without --yes"** | Non-interactive (piped/cron) writes need `--yes`; there's no TTY to confirm on. |
 | **`maccal: command not found`** | `~/.local/bin` (source) or `/opt/homebrew/bin` (brew) isn't on `PATH`. Check with `which maccal`. |

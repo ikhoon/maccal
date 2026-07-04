@@ -244,6 +244,18 @@ extension EventInfo {
             availability: availability, organizer: organizer, attendees: attendees,
             recurring: recurring, recurrenceRule: recurrenceRule)
     }
+
+    /// The single (detached) occurrence of this series at `start` — same fields,
+    /// rescheduled to `start`, no recurrence. Used by per-occurrence edit's
+    /// preview and by FakeCalendarStore.
+    public func detachedOccurrence(at start: Date) -> EventInfo {
+        EventInfo(
+            id: id, calendar: calendar, calendarId: calendarId, title: title,
+            start: start, end: start.addingTimeInterval(end.timeIntervalSince(self.start)),
+            allDay: allDay, timeZone: timeZone, location: location, notes: notes, url: url,
+            status: status, availability: availability, organizer: organizer,
+            attendees: attendees, recurring: false, recurrenceRule: nil)
+    }
 }
 
 /// Which occurrences a write touches. Maps to EKSpan; for non-recurring events
@@ -373,4 +385,9 @@ public protocol CalendarStore {
     /// No-op when the occurrence isn't found. Throws WriteError.notWritable /
     /// .storeFailure.
     func cancelOccurrence(id: String, occurrence: Date) throws
+    /// Edit a single occurrence of the recurring series `id` at `occurrence`,
+    /// detaching it (.thisEvent). Non-schedule fields only
+    /// (title/location/notes/url/availability). Returns the detached EventInfo.
+    /// Throws WriteError.notFound / .notWritable / .storeFailure.
+    func updateOccurrence(id: String, occurrence: Date, _ changes: EventChanges) throws -> EventInfo
 }
