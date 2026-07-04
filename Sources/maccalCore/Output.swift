@@ -139,4 +139,43 @@ public enum Output {
         }
         return out
     }
+
+    /// ANSI styles for human (TTY) output. Applied only when `enabled` — the CLI
+    /// turns color on for a TTY and off for pipes, `--json`, `--no-color`, or a
+    /// set `NO_COLOR` — so piped and JSON output stays plain.
+    public enum Style: String {
+        case reset = "\u{001B}[0m"
+        case bold = "\u{001B}[1m"
+        case dim = "\u{001B}[2m"
+        case red = "\u{001B}[31m"
+        case green = "\u{001B}[32m"
+        case yellow = "\u{001B}[33m"
+        case blue = "\u{001B}[34m"
+        case magenta = "\u{001B}[35m"
+        case cyan = "\u{001B}[36m"
+    }
+
+    /// Wrap `s` in the given ANSI styles when `enabled`; otherwise return it
+    /// unchanged. Column widths aren't affected because human output is tab-
+    /// separated (the terminal aligns on tabs, ignoring the escape codes).
+    public static func paint(_ s: String, _ styles: Style..., enabled: Bool) -> String {
+        guard enabled, !styles.isEmpty else { return s }
+        return styles.map(\.rawValue).joined() + s + Style.reset.rawValue
+    }
+
+    /// A truecolor swatch dot + the hex, for `calendars` color output. Falls back
+    /// to the bare hex when color is off or the hex can't be parsed.
+    public static func colorSwatch(_ hex: String, enabled: Bool) -> String {
+        guard enabled else { return hex }
+        let h = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard h.count == 6, let v = Int(h, radix: 16) else { return hex }
+        let r = (v >> 16) & 0xFF, g = (v >> 8) & 0xFF, b = v & 0xFF
+        return "\u{001B}[38;2;\(r);\(g);\(b)m●\u{001B}[0m \(hex)"
+    }
+
+    /// Strip ANSI escape codes — used before persisting a possibly-colorized
+    /// summary so files and parsers (e.g. the menu-bar app) see plain text.
+    public static func stripANSI(_ s: String) -> String {
+        s.replacingOccurrences(of: "\u{001B}\\[[0-9;]*m", with: "", options: .regularExpression)
+    }
 }

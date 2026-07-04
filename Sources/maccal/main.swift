@@ -129,6 +129,14 @@ func emit(_ result: WriteResult) throws {
     }
 }
 
+/// Whether to colorize human output: on for a TTY, off for pipes/redirects,
+/// `--json`, `--no-color`, or a set `NO_COLOR`. Keeps ANSI out of pipes and JSON.
+func useColor(noColor: Bool, json: Bool) -> Bool {
+    if json || noColor { return false }
+    if ProcessInfo.processInfo.environment["NO_COLOR"] != nil { return false }
+    return isatty(fileno(stdout)) == 1
+}
+
 struct CalendarsCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "calendars",
@@ -152,6 +160,9 @@ struct CalendarsCommand: ParsableCommand {
     @Option(name: .long, help: "Filter by source/account title (case-insensitive substring).")
     var source: String?
 
+    @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
+    var noColor = false
+
     func run() throws {
         let store = EKEventStore()
         CalendarAccess.require(store: store)
@@ -159,7 +170,8 @@ struct CalendarsCommand: ParsableCommand {
             store: EKCalendarStore(store: store),
             json: json,
             writableOnly: writable,
-            sourceFilter: source
+            sourceFilter: source,
+            color: useColor(noColor: noColor, json: json)
         )
         print(out, terminator: "")
     }
@@ -197,6 +209,9 @@ struct AgendaCommand: ParsableCommand {
     @Option(name: .long, help: "Maximum rows shown. Default: 20.")
     var max: Int = 20
 
+    @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
+    var noColor = false
+
     func run() throws {
         // Validate args before prompting for Calendar access.
         guard max > 0 else {
@@ -209,6 +224,7 @@ struct AgendaCommand: ParsableCommand {
             let out = try runAgenda(
                 store: EKCalendarStore(store: store),
                 json: json, calendars: calendar, from: from, to: to, max: max,
+                color: useColor(noColor: noColor, json: json),
                 now: Date(), timeZone: .current
             )
             print(out, terminator: "")
@@ -239,10 +255,14 @@ struct ShowCommand: ParsableCommand {
     @Flag(name: .long, help: "Single JSON object (every field).")
     var json = false
 
+    @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
+    var noColor = false
+
     func run() throws {
         let store = EKEventStore()
         CalendarAccess.require(store: store)
-        let result = runShow(store: EKCalendarStore(store: store), id: id, json: json, timeZone: .current)
+        let result = runShow(store: EKCalendarStore(store: store), id: id, json: json,
+                             color: useColor(noColor: noColor, json: json), timeZone: .current)
         guard result.found else {
             FileHandle.standardError.write(Data("maccal: event \(id) not found\n".utf8))
             throw ExitCode(1)
@@ -291,6 +311,9 @@ struct SearchCommand: ParsableCommand {
     @Flag(name: .long, help: "Print totals only and pull no rows.")
     var countOnly = false
 
+    @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
+    var noColor = false
+
     func run() throws {
         // Validate args before prompting for Calendar access.
         guard let searchScope = SearchScope(rawValue: scope.lowercased()) else {
@@ -308,6 +331,7 @@ struct SearchCommand: ParsableCommand {
                 store: EKCalendarStore(store: store),
                 query: query, json: json, calendars: calendar, scope: searchScope,
                 from: from, to: to, max: max, countOnly: countOnly,
+                color: useColor(noColor: noColor, json: json),
                 now: Date(), timeZone: .current
             )
             print(out, terminator: "")
@@ -571,6 +595,9 @@ struct SyncCommand: ParsableCommand {
     @Flag(name: [.long, .customShort("y")], help: "Skip the confirmation prompt (required on a non-TTY).")
     var yes = false
 
+    @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
+    var noColor = false
+
     func run() throws {
         if from.isEmpty { throw ValidationError("at least one --from is required") }
         var detail: SyncDetail = [.title, .location]
@@ -584,11 +611,14 @@ struct SyncCommand: ParsableCommand {
                 store: EKCalendarStore(store: store),
                 from: from, to: to, since: since, until: until,
                 detail: detail, noDelete: noDelete, json: json, dryRun: dryRun,
+                color: useColor(noColor: noColor, json: json),
                 confirm: confirmer, now: Date(), timeZone: .current
             )
             try emit(result)
             if case .wrote(let out) = result {
-                SyncStatus.record(at: Date(), summary: out.split(separator: "\n").first.map(String.init) ?? "")
+                // Persist a plain (color-stripped) summary so the menu-bar app parses it.
+                let plain = Output.stripANSI(out).split(separator: "\n").first.map(String.init) ?? ""
+                SyncStatus.record(at: Date(), summary: plain)
             }
         } catch let e as MaccalError {
             FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))

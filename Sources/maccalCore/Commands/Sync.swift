@@ -126,6 +126,7 @@ public func runSync(
     noDelete: Bool,
     json: Bool,
     dryRun: Bool,
+    color: Bool = false,
     confirm: Confirmer,
     now: Date,
     timeZone: TimeZone = .current
@@ -301,7 +302,11 @@ public func runSync(
     if json {
         return .wrote(Output.jsonLine(SyncSummary(source: sources, target: dst.title, created: created, updated: updated, deleted: deleted, cancelled: cancelled)))
     }
-    return .wrote("synced: \(label)   +\(created) new  ~\(updated) changed  -\(deleted) removed  ✂\(cancelled) cancelled")
+    let counts = Output.paint("+\(created) new", .green, enabled: color) + "  "
+        + Output.paint("~\(updated) changed", .yellow, enabled: color) + "  "
+        + Output.paint("-\(deleted) removed", .red, enabled: color) + "  "
+        + Output.paint("✂\(cancelled) cancelled", .dim, enabled: color)
+    return .wrote("synced: \(label)   \(counts)")
 }
 
 private struct SyncSummary: Encodable {

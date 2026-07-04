@@ -11,7 +11,8 @@ public func runCalendars(
     store: CalendarStore,
     json: Bool,
     writableOnly: Bool = false,
-    sourceFilter: String? = nil
+    sourceFilter: String? = nil,
+    color: Bool = false
 ) -> String {
     var cals = store.calendars()
     if writableOnly {
@@ -33,8 +34,17 @@ public func runCalendars(
     }
     // Text mode shows the columns useful for selecting a calendar; JSON carries
     // everything (identifier, sourceType, color).
-    let rows = cals.map { c in
-        [c.title, c.source, c.type, c.writable ? "rw" : "ro", c.color]
+    let rows = cals.map { c -> [String] in
+        let rw = c.writable
+            ? Output.paint("rw", .green, enabled: color)
+            : Output.paint("ro", .yellow, enabled: color)
+        return [
+            Output.paint(c.title, .bold, enabled: color),
+            Output.paint(c.source, .dim, enabled: color),
+            Output.paint(c.type, .dim, enabled: color),
+            rw,
+            Output.colorSwatch(c.color, enabled: color),
+        ]
     }
     return Output.tsv(rows)
 }

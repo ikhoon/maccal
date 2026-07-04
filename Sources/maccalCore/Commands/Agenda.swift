@@ -18,6 +18,7 @@ public func runAgenda(
     from: String? = nil,
     to: String? = nil,
     max: Int = 20,
+    color: Bool = false,
     now: Date,
     timeZone: TimeZone = .current
 ) throws -> String {
@@ -37,9 +38,12 @@ public func runAgenda(
     // Columns: when · [calendar] · title · id — the human-readable bits first,
     // the long id last (use --json for scripting).
     let rows = shown.map { ev -> [String] in
-        let when = Output.when(ev, timeZone: timeZone)
+        let when = Output.paint(Output.when(ev, timeZone: timeZone), .cyan, enabled: color)
         let title = Output.sanitize(ev.title)
-        return multiCalendar ? [when, Output.sanitize(ev.calendar), title, ev.id] : [when, title, ev.id]
+        let id = Output.paint(ev.id, .dim, enabled: color)
+        return multiCalendar
+            ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, id]
+            : [when, title, id]
     }
     var out = Output.tsv(rows)
     if events.count > shown.count {
