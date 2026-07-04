@@ -29,6 +29,7 @@ public enum WriteValidationError: MaccalError, Equatable {
     case noChanges
     case sameSourceTarget                 // sync --from and --to resolve to the same calendar
     case occurrenceScheduleUnsupported    // per-occurrence edit can't reschedule/move
+    case noEventsToImport                 // an import file had no VEVENTs
 
     public var description: String {
         switch self {
@@ -46,6 +47,7 @@ public enum WriteValidationError: MaccalError, Equatable {
         case .sameSourceTarget: return "--from and --to must be different calendars"
         case .occurrenceScheduleUnsupported:
             return "editing one occurrence supports title/location/notes/url/availability only — reschedule the series with --all-occurrences, or rm the occurrence and add a new event"
+        case .noEventsToImport: return "no events found to import"
         }
     }
 }

@@ -45,7 +45,8 @@ rather than your terminal.
 - [Quick start](#quick-start) — copy-paste cheat sheet
 - [Commands](#commands)
   - Read: [`calendars`](#calendars) · [`agenda`](#agenda) · [`show`](#show) · [`search`](#search)
-  - Write: [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`sync`](#sync) · [`auth`](#auth)
+  - Write: [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`sync`](#sync)
+  - Interop: [`export` / `import`](#export--import) · Setup: [`auth`](#auth)
 - [Menu-bar sync app](#menu-bar-sync-app-maccalapp) — scheduled background sync
 - [Dates & durations](#dates--durations) · [Scripting with JSON](#scripting-with-json) · [Shell completion](#shell-completion)
 - [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [Privacy](#privacy) · [Requirements](#requirements) · [Development](#development)
@@ -181,6 +182,7 @@ maccal auth                               # grant maccal its own Calendar access
 | **Read** | `calendars` `agenda` `show` `search` | no side effects |
 | **Write** | `add` `edit` `rm` | confirm by default; `--dry-run` / `--yes` |
 | **Sync** | `sync` | one-way mirror into a target; idempotent |
+| **Interop** | `export` `import` | iCalendar (.ics) out / in |
 | **Setup** | `auth` | grant Calendar access once |
 
 Conventions: every command takes `--json` (NDJSON, for `jq`); `--calendar`
@@ -402,6 +404,25 @@ schedule it for you.
 
 Flags: `--from` (repeatable), `--to`, `--since`/`--until`, `--notes`,
 `--no-location`, `--no-delete`, `--json`, `--dry-run`, `--yes`.
+
+---
+
+### `export` / `import`
+
+Move events in and out as **iCalendar (.ics)** — to share with another app or person.
+
+```bash
+maccal export <id> > event.ics                       # one event → .ics
+maccal export <id> | pbcopy
+maccal import invite.ics --calendar Work --dry-run   # preview
+maccal import invite.ics --calendar Work --yes       # create them
+cat invite.ics | maccal import - --yes               # from stdin
+```
+
+`export` writes timed events in UTC and all-day events as `VALUE=DATE`. `import`
+reads VEVENTs (summary/start/end/location/description/url) into `--calendar` (or
+the default), confirming once for the whole batch. Recurrence rules and non-UTC
+time zones aren't round-tripped yet.
 
 ---
 
