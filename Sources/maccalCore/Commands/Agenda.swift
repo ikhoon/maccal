@@ -19,6 +19,7 @@ public func runAgenda(
     to: String? = nil,
     max: Int = 20,
     color: Bool = false,
+    hideCancelled: Bool = false,
     now: Date,
     timeZone: TimeZone = .current
 ) throws -> String {
@@ -26,7 +27,8 @@ public func runAgenda(
         from: from, to: to, now: now, timeZone: timeZone,
         defaultFromDays: 0, defaultSpanDays: 7
     )
-    let events = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    let all = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    let events = hideCancelled ? all.filter { $0.status != "canceled" } : all
     let shown = Array(events.prefix(Swift.max(0, max)))
 
     if json {

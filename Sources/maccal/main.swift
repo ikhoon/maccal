@@ -212,6 +212,9 @@ struct AgendaCommand: ParsableCommand {
     @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
     var noColor = false
 
+    @Flag(name: .customLong("hide-cancelled"), help: "Hide events with a cancelled status.")
+    var hideCancelled = false
+
     func run() throws {
         // Validate args before prompting for Calendar access.
         guard max > 0 else {
@@ -225,6 +228,7 @@ struct AgendaCommand: ParsableCommand {
                 store: EKCalendarStore(store: store),
                 json: json, calendars: calendar, from: from, to: to, max: max,
                 color: useColor(noColor: noColor, json: json),
+                hideCancelled: hideCancelled,
                 now: Date(), timeZone: .current
             )
             print(out, terminator: "")
@@ -314,6 +318,9 @@ struct SearchCommand: ParsableCommand {
     @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
     var noColor = false
 
+    @Flag(name: .customLong("hide-cancelled"), help: "Hide events with a cancelled status.")
+    var hideCancelled = false
+
     func run() throws {
         // Validate args before prompting for Calendar access.
         guard let searchScope = SearchScope(rawValue: scope.lowercased()) else {
@@ -332,6 +339,7 @@ struct SearchCommand: ParsableCommand {
                 query: query, json: json, calendars: calendar, scope: searchScope,
                 from: from, to: to, max: max, countOnly: countOnly,
                 color: useColor(noColor: noColor, json: json),
+                hideCancelled: hideCancelled,
                 now: Date(), timeZone: .current
             )
             print(out, terminator: "")

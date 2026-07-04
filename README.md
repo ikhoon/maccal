@@ -231,6 +231,7 @@ maccal agenda --json | jq -r .title
 | `--from` / `--to` | `[today, +7d)` | Window bounds (exclusive end); see [Dates](#dates--durations) |
 | `--calendar <sel>` | all | Title or identifier; repeatable to union |
 | `--max <n>` | `20` | Max rows (trailer reports the true total) |
+| `--hide-cancelled` | — | Omit events with a cancelled status |
 | `--json` | — | NDJSON |
 
 ---
@@ -286,6 +287,7 @@ maccal search incident --count-only    # totals only, no rows
 | `--from` / `--to` | `[today-30d, +30d)` | Window bounds |
 | `--max <n>` | `10` | Max rows |
 | `--count-only` | — | Print totals, no rows |
+| `--hide-cancelled` | — | Omit events with a cancelled status |
 | `--json` | — | NDJSON; final line is `{"_summary": {…}}` |
 
 ---
