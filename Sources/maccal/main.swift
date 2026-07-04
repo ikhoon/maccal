@@ -200,10 +200,10 @@ struct AgendaCommand: ParsableCommand {
             help: "Calendar to include, by title or identifier (case-insensitive). Repeat to union; omit for all.")
     var calendar: [String] = []
 
-    @Option(name: .long, help: "Window start: YYYY-MM-DD, today/tomorrow/yesterday, or ±Nd/±Nw. Default: today.")
+    @Option(name: [.customLong("from"), .customLong("since")], help: "Window start: YYYY-MM-DD, today/tomorrow/yesterday, or ±Nd/±Nw. Default: today. (alias: --since)")
     var from: String?
 
-    @Option(name: .long, help: "Window end (exclusive): same forms as --from. Default: --from + 7 days.")
+    @Option(name: [.customLong("to"), .customLong("until")], help: "Window end (exclusive): same forms as --from. Default: --from + 7 days. (alias: --until)")
     var to: String?
 
     @Option(name: .long, help: "Maximum rows shown. Default: 20.")
@@ -299,10 +299,10 @@ struct SearchCommand: ParsableCommand {
     @Option(name: .customLong("in"), help: "Fields to match: title | location | notes | all. Default: all.")
     var scope: String = "all"
 
-    @Option(name: .long, help: "Window start: YYYY-MM-DD, today/tomorrow/yesterday, or ±Nd/±Nw. Default: today - 30 days.")
+    @Option(name: [.customLong("from"), .customLong("since")], help: "Window start: YYYY-MM-DD, today/tomorrow/yesterday, or ±Nd/±Nw. Default: today - 30 days. (alias: --since)")
     var from: String?
 
-    @Option(name: .long, help: "Window end (exclusive): same forms as --from. Default: --from + 60 days.")
+    @Option(name: [.customLong("to"), .customLong("until")], help: "Window end (exclusive): same forms as --from. Default: --from + 60 days. (alias: --until)")
     var to: String?
 
     @Option(name: .long, help: "Maximum rows shown. Default: 10.")

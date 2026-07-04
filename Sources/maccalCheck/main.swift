@@ -1094,6 +1094,16 @@ do {
 }
 
 do {
+    // Empty-id source events are skipped — a "" id would collapse the marker to
+    // srcId="" and group unrelated copies together.
+    let s = syncStore([srcEvent("", "Ghost", 1), srcEvent("E1", "Real", 2)])
+    _ = try! syncRun(s)
+    let copies = syncedCopies(s)
+    c.eq(copies.count, 1, "sync skips the empty-id source event")
+    c.eq(copies.first?.title, "Real", "only the id-bearing source event is mirrored")
+}
+
+do {
     // idempotent: a re-sync with no source change writes nothing, no duplicates.
     let s = syncStore([srcEvent("W1", "Standup", 1)])
     _ = try! syncRun(s)
