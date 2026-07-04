@@ -310,6 +310,8 @@ do {
     c.expect(shown.contains("Live") && shown.contains("Scrapped"), "agenda without the flag shows cancelled events")
     let searched = try! runSearch(store: s, query: "", json: false, hideCancelled: true, now: kstNow, timeZone: kst)
     c.expect(searched.contains("Live") && !searched.contains("Scrapped"), "search --hide-cancelled drops cancelled events")
+    let searchedAll = try! runSearch(store: s, query: "", json: false, hideCancelled: false, now: kstNow, timeZone: kst)
+    c.expect(searchedAll.contains("Live") && searchedAll.contains("Scrapped"), "search without the flag shows cancelled events")
 }
 
 // MARK: show — runShow
