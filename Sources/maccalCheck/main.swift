@@ -1724,6 +1724,36 @@ do {
          "lower", "lowercase BEGIN/END still parse")
 }
 
+// MARK: free — open slots within work hours
+
+do {
+    let dayStart = kstCal.startOfDay(for: kstNow)
+    let win = DateInterval(start: dayStart, end: kstCal.date(byAdding: .day, value: 1, to: dayStart)!)
+    let mtg = EventInfo.fixture(id: "B", title: "Mtg", calendar: "Work",
+        start: kstCal.date(bySettingHour: 10, minute: 0, second: 0, of: dayStart)!,
+        end: kstCal.date(bySettingHour: 11, minute: 0, second: 0, of: dayStart)!)
+    let s = FakeCalendarStore(events: [mtg])
+    // 09–18 work day minus a 10–11 meeting → 09–10 (60m) and 11–18 (420m).
+    let slots = runFree(store: s, window: win, minDuration: 3600, workStartHour: 9, workEndHour: 18, json: true, timeZone: kst)
+        .split(separator: "\n").map(String.init)
+    c.eq(slots.count, 2, "two free slots around a midday meeting")
+    c.expect(slots.first?.contains("\"minutes\":60") ?? false, "morning slot is 60 min (09–10)")
+    c.expect(slots.last?.contains("\"minutes\":420") ?? false, "afternoon slot is 420 min (11–18)")
+    // a 2h minimum drops the 1h morning gap
+    let big = runFree(store: s, window: win, minDuration: 7200, workStartHour: 9, workEndHour: 18, json: true, timeZone: kst)
+        .split(separator: "\n").filter { !$0.isEmpty }
+    c.eq(big.count, 1, "min 2h keeps only the afternoon slot")
+    // an availability=free event doesn't count as busy
+    let freeEv = EventInfo.fixture(id: "F", title: "OOO", calendar: "Work",
+        start: kstCal.date(bySettingHour: 13, minute: 0, second: 0, of: dayStart)!,
+        end: kstCal.date(bySettingHour: 14, minute: 0, second: 0, of: dayStart)!, availability: "free")
+    let full = runFree(store: FakeCalendarStore(events: [freeEv]), window: win, minDuration: 3600,
+                       workStartHour: 9, workEndHour: 18, json: true, timeZone: kst)
+        .split(separator: "\n").filter { !$0.isEmpty }
+    c.eq(full.count, 1, "an availability=free event doesn't split the day")
+    c.expect(full.first?.contains("\"minutes\":540") ?? false, "whole 09–18 stays free (540 min)")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

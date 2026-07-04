@@ -44,7 +44,7 @@ rather than your terminal.
 - [Install](#install) · [Calendar access](#calendar-access-one-time)
 - [Quick start](#quick-start) — copy-paste cheat sheet
 - [Commands](#commands)
-  - Read: [`calendars`](#calendars) · [`agenda`](#agenda) · [`show`](#show) · [`search`](#search)
+  - Read: [`calendars`](#calendars) · [`agenda`](#agenda) · [`show`](#show) · [`search`](#search) · [`free`](#free)
   - Write: [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`sync`](#sync)
   - Interop: [`export` / `import`](#export--import) · Setup: [`auth`](#auth)
 - [Menu-bar sync app](#menu-bar-sync-app-maccalapp) — scheduled background sync
@@ -179,7 +179,7 @@ maccal auth                               # grant maccal its own Calendar access
 
 | | Commands | Notes |
 |---|---|---|
-| **Read** | `calendars` `agenda` `show` `search` | no side effects |
+| **Read** | `calendars` `agenda` `show` `search` `free` | no side effects |
 | **Write** | `add` `edit` `rm` | confirm by default; `--dry-run` / `--yes` |
 | **Sync** | `sync` | one-way mirror into a target; idempotent |
 | **Interop** | `export` `import` | iCalendar (.ics) out / in |
@@ -291,6 +291,24 @@ maccal search incident --count-only    # totals only, no rows
 | `--count-only` | — | Print totals, no rows |
 | `--hide-cancelled` | — | Omit events with a cancelled status |
 | `--json` | — | NDJSON; final line is `{"_summary": {…}}` |
+
+---
+
+### `free`
+
+Find your **open slots** within working hours — for scheduling ("when am I free
+this week?"). Lists your own gaps; it doesn't coordinate with other people's calendars.
+
+```bash
+maccal free --duration 1h                    # next 7 days, 09–18, gaps ≥ 1h
+maccal free --duration 30m --within +3d      # just the next 3 days
+maccal free --duration 1h --work-start 10 --work-end 17
+maccal free --duration 1h --json | jq .      # {start, end, minutes}
+```
+
+Busy = any event not marked *free*. `--from`/`--within` bound the window (default
+today … +7d; `--within` takes natural language too); `--work-start`/`--work-end`
+set the daily hours (default 9–18).
 
 ---
 

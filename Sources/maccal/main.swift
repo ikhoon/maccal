@@ -92,7 +92,7 @@ struct Maccal: ParsableCommand {
         subcommands: [
             CalendarsCommand.self, AgendaCommand.self, ShowCommand.self, SearchCommand.self,
             AddCommand.self, EditCommand.self, RmCommand.self, SyncCommand.self,
-            ExportCommand.self, ImportCommand.self, AuthCommand.self,
+            ExportCommand.self, ImportCommand.self, FreeCommand.self, AuthCommand.self,
             CompletionsCommand.self,
         ]
     )
@@ -764,6 +764,70 @@ struct ImportCommand: ParsableCommand {
             let result = try runImport(store: EKCalendarStore(store: store), drafts: drafts,
                                        calendar: calendar, dryRun: dryRun, confirm: confirmer, timeZone: .current)
             try emit(result)
+        } catch let e as MaccalError {
+            FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
+            throw ExitCode(1)
+        }
+    }
+}
+
+struct FreeCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "free",
+        abstract: "Find open slots in your working hours.",
+        discussion: """
+        Examples:
+          $ maccal free --duration 1h                    # next 7 days, 09–18
+          $ maccal free --duration 30m --within +3d
+          $ maccal free --duration 1h --work-start 10 --work-end 17 --json
+
+        Lists your OWN open slots (busy = events not marked free). It doesn't
+        coordinate with anyone else's calendar.
+        """
+    )
+
+    @Option(name: .long, help: "Minimum slot length: 30m, 1h, 1h30m.")
+    var duration: String
+
+    @Option(name: [.customLong("from"), .customLong("since")], help: "Window start (default today).")
+    var from: String?
+
+    @Option(name: [.customLong("within"), .customLong("to"), .customLong("until")], help: "Window end (default +7d).")
+    var within: String?
+
+    @Option(name: .customLong("work-start"), help: "Work-day start hour, 0–24 (default 9).")
+    var workStart: Int = 9
+
+    @Option(name: .customLong("work-end"), help: "Work-day end hour, 0–24 (default 18).")
+    var workEnd: Int = 18
+
+    @Option(name: .long, parsing: .singleValue, help: "Calendar to consider (repeatable; default all).")
+    var calendar: [String] = []
+
+    @Flag(name: .long, help: "NDJSON output (start/end/minutes).")
+    var json = false
+
+    func run() throws {
+        guard workStart >= 0, workEnd <= 24, workStart < workEnd else {
+            FileHandle.standardError.write(Data("maccal: --work-start/--work-end must be 0–24 with start < end\n".utf8))
+            throw ExitCode(1)
+        }
+        let tz = TimeZone.current
+        do {
+            let window = try DateWindow.window(from: from, to: within, now: Date(), timeZone: tz,
+                                               defaultFromDays: 0, defaultSpanDays: 7)
+            var cal = Calendar(identifier: .gregorian); cal.timeZone = tz
+            let comps = try DateTime.parseDuration(duration)
+            guard let durEnd = cal.date(byAdding: comps, to: window.start), durEnd > window.start else {
+                FileHandle.standardError.write(Data("maccal: --duration must be positive\n".utf8))
+                throw ExitCode(1)
+            }
+            let minDuration = durEnd.timeIntervalSince(window.start)
+            let store = EKEventStore()
+            CalendarAccess.require(store: store)
+            let out = runFree(store: EKCalendarStore(store: store), window: window, minDuration: minDuration,
+                              workStartHour: workStart, workEndHour: workEnd, calendars: calendar, json: json, timeZone: tz)
+            print(out, terminator: "")
         } catch let e as MaccalError {
             FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
             throw ExitCode(1)
