@@ -1434,6 +1434,46 @@ do {
     c.expect(SyncStatus.last(from: tmp) == nil, "SyncStatus: empty file -> nil")
 }
 
+// MARK: AppVersion (symlink-robust bundle version lookup)
+
+do {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maccal-vertest-\(UUID().uuidString)")
+    let contents = root.appendingPathComponent("maccal.app/Contents")
+    let exe = contents.appendingPathComponent("MacOS/maccal")
+    let info = contents.appendingPathComponent("Info.plist")
+    defer { try? FileManager.default.removeItem(at: root) }
+    try! FileManager.default.createDirectory(at: exe.deletingLastPathComponent(),
+                                             withIntermediateDirectories: true)
+    try! Data().write(to: exe)
+
+    func writePlist(_ version: String) {
+        let data = try! PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleShortVersionString": version], format: .xml, options: 0)
+        try! data.write(to: info)
+    }
+
+    c.expect(AppVersion.infoPlistVersion(forExecutable: exe) == nil,
+             "AppVersion: no Info.plist -> nil")
+    c.expect(AppVersion.infoPlistVersion(forExecutable: nil) == nil,
+             "AppVersion: nil executable -> nil")
+
+    writePlist("9.9.9")
+    c.eq(AppVersion.infoPlistVersion(forExecutable: exe), "9.9.9",
+         "AppVersion: reads CFBundleShortVersionString from the bundle's Info.plist")
+
+    writePlist("dev")
+    c.expect(AppVersion.infoPlistVersion(forExecutable: exe) == nil,
+             "AppVersion: the build-time 'dev' placeholder is treated as absent")
+
+    // A symlinked launcher (like Homebrew's bin/maccal) resolves to the same bundle.
+    writePlist("9.9.9")
+    let link = root.appendingPathComponent("maccal-link")
+    try! FileManager.default.createSymbolicLink(at: link, withDestinationURL: exe)
+    c.eq(AppVersion.infoPlistVersion(forExecutable: link.resolvingSymlinksInPath()), "9.9.9",
+         "AppVersion: a symlinked launcher resolves to the bundle version")
+}
+
 // MARK: SyncAgent (menu-bar app's launchd job spec)
 
 do {
