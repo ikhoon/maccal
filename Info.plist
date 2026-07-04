@@ -14,6 +14,8 @@
     <string>maccal</string>
     <key>CFBundleExecutable</key>
     <string>maccal</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <!-- Placeholder; release.sh stamps the real git version into the .app bundle. -->
     <key>CFBundleShortVersionString</key>
     <string>dev</string>

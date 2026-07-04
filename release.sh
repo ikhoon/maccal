@@ -30,12 +30,15 @@ X86=".build/x86_64-apple-macosx/release/maccal"
 DIST="dist"
 APP="${DIST}/maccal.app"
 MACOS_DIR="${APP}/Contents/MacOS"
+RES_DIR="${APP}/Contents/Resources"
 rm -rf "$DIST"
-mkdir -p "$MACOS_DIR"
+mkdir -p "$MACOS_DIR" "$RES_DIR"
 
 echo "release: lipo → universal"
 lipo -create -output "${MACOS_DIR}/maccal" "$ARM" "$X86"
 cp "${SCRIPT_DIR}/Info.plist" "${APP}/Contents/Info.plist"
+# App icon — the same mark as the menu-bar/tray glyph.
+[ -f "${SCRIPT_DIR}/assets/AppIcon.icns" ] && cp "${SCRIPT_DIR}/assets/AppIcon.icns" "${RES_DIR}/AppIcon.icns"
 # Stamp the git version into the bundle so `maccal --version` is accurate.
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION#v}" "${APP}/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION#v}" "${APP}/Contents/Info.plist"

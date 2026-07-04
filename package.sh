@@ -43,8 +43,11 @@ X86_CLI=".build/x86_64-apple-macosx/release/maccal"
 DIST="dist"
 APP="${DIST}/maccal.app"
 MACOS_DIR="${APP}/Contents/MacOS"
+RES_DIR="${APP}/Contents/Resources"
 rm -rf "$APP"
-mkdir -p "$MACOS_DIR"
+mkdir -p "$MACOS_DIR" "$RES_DIR"
+# App icon — the same sync-ring + calendar mark as the menu-bar/tray glyph.
+[ -f "${SCRIPT_DIR}/assets/AppIcon.icns" ] && cp "${SCRIPT_DIR}/assets/AppIcon.icns" "${RES_DIR}/AppIcon.icns"
 
 echo "package: lipo → universal"
 lipo -create -output "${MACOS_DIR}/maccalbar" "$ARM" "$X86"
@@ -65,6 +68,7 @@ cat > "${APP}/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>maccal</string>
   <key>CFBundleDisplayName</key><string>maccal</string>
   <key>CFBundleExecutable</key><string>maccalbar</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleShortVersionString</key><string>${VERSION#v}</string>
   <key>CFBundleVersion</key><string>${VERSION#v}</string>
   <key>LSUIElement</key><true/>
