@@ -82,13 +82,7 @@ final class FakeCalendarStore: CalendarStore {
         // Move to another calendar when requested (validates existence + writable).
         if let sel = changes.calendar {
             let target = try resolveCalendar(sel)
-            updated = EventInfo(
-                id: updated.id, calendar: target.title, calendarId: target.calendarIdentifier,
-                title: updated.title, start: updated.start, end: updated.end, allDay: updated.allDay,
-                timeZone: updated.timeZone, location: updated.location, notes: updated.notes,
-                url: updated.url, status: updated.status, availability: updated.availability,
-                organizer: updated.organizer, attendees: updated.attendees,
-                recurring: updated.recurring, recurrenceRule: updated.recurrenceRule)
+            updated = updated.movingTo(calendar: target.title, calendarId: target.calendarIdentifier)
         }
         eventList[idx] = updated
         return updated

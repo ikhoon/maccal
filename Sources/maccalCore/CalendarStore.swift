@@ -217,7 +217,7 @@ extension EventInfo {
     public func applying(_ c: EventChanges) -> EventInfo {
         let resultAllDay = c.allDay ?? allDay
         return EventInfo(
-            id: id, calendar: c.calendar ?? calendar, calendarId: calendarId,
+            id: id, calendar: calendar, calendarId: calendarId,
             title: c.title ?? title,
             start: c.start ?? start,
             end: c.end ?? end,
@@ -231,6 +231,18 @@ extension EventInfo {
             organizer: organizer, attendees: attendees, recurring: recurring,
             recurrenceRule: c.recurrenceRule ?? recurrenceRule
         )
+    }
+
+    /// A copy relocated to another calendar (title + id); all other fields kept.
+    /// `applying` can't resolve a `--calendar` selector to a (title, id) pair, so
+    /// runEdit and the stores use this to reflect the move.
+    public func movingTo(calendar: String, calendarId: String) -> EventInfo {
+        EventInfo(
+            id: id, calendar: calendar, calendarId: calendarId, title: title,
+            start: start, end: end, allDay: allDay, timeZone: timeZone,
+            location: location, notes: notes, url: url, status: status,
+            availability: availability, organizer: organizer, attendees: attendees,
+            recurring: recurring, recurrenceRule: recurrenceRule)
     }
 }
 

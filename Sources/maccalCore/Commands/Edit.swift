@@ -109,6 +109,7 @@ public func runEdit(
         changes.url = url
     }
     if let availability { changes.availability = try validateAvailability(availability) }
+    var movedTarget: CalendarInfo?
     if let calendar {
         // Resolve + validate now so a bad --calendar fails on --dry-run too.
         let matches = store.calendars().filter {
@@ -119,10 +120,16 @@ public func runEdit(
             throw matches.isEmpty ? WriteError.calendarNotFound(calendar) : WriteError.ambiguousCalendar(calendar)
         }
         guard target.writable else { throw WriteError.notWritable }
-        changes.calendar = target.title
+        changes.calendar = calendar   // keep the user's selector; the store resolves it
+        movedTarget = target
     }
 
-    let after = current.applying(changes)
+    var after = current.applying(changes)
+    if let t = movedTarget {
+        // applying can't resolve the selector → (title, id); fix the preview so the
+        // diff and --dry-run --json show the real target calendar.
+        after = after.movingTo(calendar: t.title, calendarId: t.calendarIdentifier)
+    }
     if dryRun {
         return .dryRun(json ? Output.jsonLine(after) : diffText(current, after, timeZone: parseZone))
     }
