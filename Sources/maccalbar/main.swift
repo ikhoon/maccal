@@ -15,6 +15,7 @@
 
 import AppKit
 import EventKit
+import IOKit.pwr_mgt
 import QuartzCore
 import ServiceManagement
 import maccalCore
@@ -43,6 +44,10 @@ enum Settings {
                 : SyncDetail(rawValue: d.integer(forKey: "detailRaw"))
         }
         set { d.set(newValue.rawValue, forKey: "detailRaw") }
+    }
+    static var keepAwake: Bool {
+        get { d.bool(forKey: "keepAwake") }
+        set { d.set(newValue, forKey: "keepAwake") }
     }
 }
 
@@ -125,11 +130,129 @@ enum BackgroundAgent {
 @MainActor
 enum LoginItem {
     static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
-    static func toggle() {
+    @discardableResult
+    static func set(_ on: Bool) -> Bool {
         let svc = SMAppService.mainApp
         do {
-            if svc.status == .enabled { try svc.unregister() } else { try svc.register() }
+            if on { try svc.register() } else { try svc.unregister() }
         } catch { NSLog("maccalbar: login item toggle failed: \(error)") }
+        return isEnabled // authoritative state (register/unregister may have thrown)
+    }
+}
+
+// MARK: - keep awake (prevent idle sleep so scheduled syncs keep running)
+
+@MainActor
+enum KeepAwake {
+    private static var assertionID: IOPMAssertionID = 0
+    private static var active = false
+
+    static var isOn: Bool { active }
+
+    /// Prevent (or release) idle system sleep. Clamshell (lid-close) sleep can't
+    /// be blocked — this only keeps an otherwise-idle Mac awake so the launchd
+    /// sync job keeps firing.
+    @discardableResult
+    static func set(_ on: Bool) -> Bool {
+        if on, !active {
+            var id: IOPMAssertionID = 0
+            if IOPMAssertionCreateWithName(
+                kIOPMAssertPreventUserIdleSystemSleep as CFString,
+                IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                "maccal: keeping awake for scheduled sync" as CFString,
+                &id) == kIOReturnSuccess {
+                assertionID = id
+                active = true
+            }
+        } else if !on, active {
+            IOPMAssertionRelease(assertionID)
+            assertionID = 0
+            active = false
+        }
+        return active // real assertion state (creation may have failed)
+    }
+}
+
+// MARK: - custom toggle menu item (native look + doesn't close the menu)
+
+/// Mimics a native checkmark menu item — leading SF Symbol, title, trailing
+/// checkmark, and the blue hover highlight — but does NOT dismiss the menu on
+/// click, so several toggles can be flipped in a row.
+@MainActor
+final class MenuToggleView: NSView {
+    private let iconView = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+    private let checkView = NSImageView()
+    private var isOn: Bool
+    private let toggle: () -> Bool   // performs the side effect, returns the real resulting state
+    private var hovered = false
+
+    init(title: String, symbol: String, on: Bool, toggle: @escaping () -> Bool) {
+        self.isOn = on
+        self.toggle = toggle
+        super.init(frame: NSRect(x: 0, y: 0, width: 240, height: 22))
+        autoresizingMask = .width
+
+        iconView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        iconView.imageScaling = .scaleProportionallyDown
+        iconView.frame = NSRect(x: 14, y: 3, width: 16, height: 16)
+        addSubview(iconView)
+
+        label.stringValue = title
+        label.font = .menuFont(ofSize: 0)
+        label.frame = NSRect(x: 36, y: 3, width: 178, height: 16)
+        label.autoresizingMask = .width
+        addSubview(label)
+
+        checkView.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+        checkView.imageScaling = .scaleProportionallyDown
+        checkView.frame = NSRect(x: 218, y: 5, width: 12, height: 12)
+        checkView.autoresizingMask = .minXMargin
+        checkView.isHidden = !on
+        addSubview(checkView)
+
+        updateColors()
+
+        // accessibility: present as a checkbox menu item so VoiceOver announces
+        // the label and the on/off (checked) state.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.checkBox)
+        setAccessibilityLabel(title)
+        setAccessibilityValue(on)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("not from a nib") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true; updateColors(); needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovered = false; updateColors(); needsDisplay = true }
+
+    override func mouseUp(with event: NSEvent) {
+        isOn = toggle() // authoritative new state — the side effect may have failed
+        checkView.isHidden = !isOn
+        setAccessibilityValue(isOn)
+        // intentionally does NOT close the enclosing menu
+    }
+
+    private func updateColors() {
+        let fg: NSColor = hovered ? .white : .labelColor
+        iconView.contentTintColor = fg
+        label.textColor = fg
+        checkView.contentTintColor = fg
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hovered {
+            NSColor.selectedContentBackgroundColor.setFill()
+            bounds.fill()
+        }
     }
 }
 
@@ -441,6 +564,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
         requestAccess() // register maccal in the Calendar TCC list up front
         BackgroundAgent.install() // background auto-sync runs whenever sources+target are set
+        Settings.keepAwake = KeepAwake.set(Settings.keepAwake) // restore + reconcile with the real assertion state
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) { rebuild(menu) }
@@ -470,7 +594,14 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             symbol: "arrow.triangle.2.circlepath", key: "s", enabled: !syncing)
         add(menu, "Settings…", #selector(openSettings), symbol: "gearshape", key: ",")
         menu.addItem(.separator())
-        add(menu, "Start at login", #selector(toggleLogin), symbol: "power", state: LoginItem.isEnabled)
+        menu.addItem(toggleItem("Start at login", symbol: "power", on: LoginItem.isEnabled) {
+            LoginItem.set(!LoginItem.isEnabled) // returns the real state after a (maybe failed) register/unregister
+        })
+        menu.addItem(toggleItem("Keep awake for sync", symbol: "cup.and.saucer", on: KeepAwake.isOn) {
+            let now = KeepAwake.set(!KeepAwake.isOn) // real assertion state
+            Settings.keepAwake = now                 // persist what actually happened
+            return now
+        })
         menu.addItem(.separator())
         add(menu, "Calendar access…", #selector(openCalendarSettings), symbol: "lock.shield")
         add(menu, "Quit maccal", #selector(NSApplication.terminate(_:)), symbol: "xmark.circle", key: "q", target: NSApp)
@@ -534,7 +665,6 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func toggleLogin() { LoginItem.toggle() }
 
     @objc private func openCalendarSettings() {
         if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
@@ -630,6 +760,15 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: menu-builder helpers
+
+    /// A native-looking toggle item (via MenuToggleView) that does NOT dismiss
+    /// the menu on click.
+    private func toggleItem(_ title: String, symbol: String, on: Bool, toggle: @escaping () -> Bool) -> NSMenuItem {
+        let item = NSMenuItem()
+        item.title = title // keep a title so the item stays identifiable to accessibility
+        item.view = MenuToggleView(title: title, symbol: symbol, on: on, toggle: toggle)
+        return item
+    }
 
     private func addDisabled(_ menu: NSMenu, _ title: String, symbol: String? = nil) {
         let mi = NSMenuItem(title: title, action: nil, keyEquivalent: "")
