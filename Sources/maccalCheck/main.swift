@@ -293,6 +293,27 @@ do {
     c.expect(line.contains("Multi Line Title"), "tab/newline in title collapsed to spaces")
 }
 
+// MARK: hide-cancelled — opt-in filter for cancelled events
+
+do {
+    let evs = [
+        EventInfo.fixture(id: "A", title: "Live", calendar: "Work",
+                          start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour)),
+        EventInfo.fixture(id: "B", title: "Scrapped", calendar: "Work",
+                          start: agToday.addingTimeInterval(3 * hour), end: agToday.addingTimeInterval(4 * hour),
+                          status: "canceled"),
+    ]
+    let s = FakeCalendarStore(events: evs)
+    let hidden = try! runAgenda(store: s, json: false, hideCancelled: true, now: kstNow, timeZone: kst)
+    c.expect(hidden.contains("Live") && !hidden.contains("Scrapped"), "agenda --hide-cancelled drops cancelled events")
+    let shown = try! runAgenda(store: s, json: false, hideCancelled: false, now: kstNow, timeZone: kst)
+    c.expect(shown.contains("Live") && shown.contains("Scrapped"), "agenda without the flag shows cancelled events")
+    let searched = try! runSearch(store: s, query: "", json: false, hideCancelled: true, now: kstNow, timeZone: kst)
+    c.expect(searched.contains("Live") && !searched.contains("Scrapped"), "search --hide-cancelled drops cancelled events")
+    let searchedAll = try! runSearch(store: s, query: "", json: false, hideCancelled: false, now: kstNow, timeZone: kst)
+    c.expect(searchedAll.contains("Live") && searchedAll.contains("Scrapped"), "search without the flag shows cancelled events")
+}
+
 // MARK: show — runShow
 
 do {

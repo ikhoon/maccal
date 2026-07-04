@@ -38,6 +38,7 @@ public func runSearch(
     max: Int = 10,
     countOnly: Bool = false,
     color: Bool = false,
+    hideCancelled: Bool = false,
     now: Date,
     timeZone: TimeZone = .current
 ) throws -> String {
@@ -50,7 +51,8 @@ public func runSearch(
 
     // Empty query degenerates to "everything in window" (substring "" matches
     // nothing under contains, which would be a surprising no-op).
-    let matches = query.isEmpty ? inWindow : inWindow.filter { matchesQuery($0, query, scope) }
+    let matched = query.isEmpty ? inWindow : inWindow.filter { matchesQuery($0, query, scope) }
+    let matches = hideCancelled ? matched.filter { $0.status != "canceled" } : matched
     let total = matches.count
     let shown: [EventInfo] = countOnly ? [] : Array(matches.prefix(Swift.max(0, max)))
 
