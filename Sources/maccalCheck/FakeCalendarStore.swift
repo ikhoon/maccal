@@ -88,6 +88,20 @@ final class FakeCalendarStore: CalendarStore {
         return updated
     }
 
+    func updateOccurrence(id: String, occurrence: Date, _ changes: EventChanges) throws -> EventInfo {
+        guard let series = eventList.first(where: { $0.id == id }), series.recurring else { throw WriteError.notFound(id) }
+        try ensureWritable(series)
+        // The occurrence must actually exist — EK locates it by date; match that so
+        // a bogus occurrence doesn't silently "succeed" in the fake.
+        let target = occurrence.timeIntervalSinceReferenceDate
+        guard (seriesOccurrenceDates[id] ?? []).contains(where: { abs($0.timeIntervalSinceReferenceDate - target) < 1 }) else {
+            throw WriteError.notFound(id)
+        }
+        lastSpan = .thisEvent
+        // A detached occurrence at `occurrence`, with the (non-schedule) changes applied.
+        return series.detachedOccurrence(at: occurrence).applying(changes)
+    }
+
     func deleteEvent(id: String, span: WriteSpan) throws -> EventInfo {
         guard let idx = eventList.firstIndex(where: { $0.id == id }) else { throw WriteError.notFound(id) }
         try ensureWritable(eventList[idx])

@@ -177,6 +177,33 @@ public final class EKCalendarStore: CalendarStore {
         }
     }
 
+    public func updateOccurrence(id: String, occurrence: Date, _ changes: EventChanges) throws -> EventInfo {
+        guard !id.isEmpty, let anchor = store.event(withIdentifier: id) else { throw WriteError.notFound(id) }
+        guard anchor.calendar?.allowsContentModifications ?? false else { throw WriteError.notWritable }
+        // Locate the specific occurrence (like cancelOccurrence), then detach-edit it.
+        let predicate = store.predicateForEvents(
+            withStart: occurrence.addingTimeInterval(-1),
+            end: occurrence.addingTimeInterval(1),
+            calendars: anchor.calendar.map { [$0] })
+        let target = occurrence.timeIntervalSinceReferenceDate
+        guard let ev = store.events(matching: predicate).first(where: {
+            $0.eventIdentifier == id
+                && abs(($0.startDate ?? .distantPast).timeIntervalSinceReferenceDate - target) < 1
+        }) else { throw WriteError.notFound(id) }
+        // Non-schedule fields only (a per-occurrence reschedule is a bigger change).
+        if let t = changes.title { ev.title = t }
+        if let loc = changes.location { ev.location = loc.isEmpty ? nil : loc }
+        if let n = changes.notes { ev.notes = n.isEmpty ? nil : n }
+        if let u = changes.url { ev.url = u.isEmpty ? nil : URL(string: u) }
+        if let av = changes.availability { ev.availability = Self.availabilityValue(av) }
+        do {
+            try store.save(ev, span: .thisEvent, commit: true)
+        } catch {
+            throw WriteError.storeFailure((error as NSError).localizedDescription)
+        }
+        return Self.eventInfo(ev)
+    }
+
     /// Resolve a selector to exactly one writable calendar, or the default
     /// new-event calendar when no selector was given. Never silently falls back
     /// to the default when a selector was provided but unmatched.

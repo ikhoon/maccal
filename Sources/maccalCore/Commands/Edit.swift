@@ -37,6 +37,36 @@ public func runEdit(
     guard hasFieldFlag else { throw WriteValidationError.noChanges }
     if end != nil, duration != nil { throw WriteValidationError.endAndDurationConflict }
 
+    // Occurrence handle "<id>@<epoch>" (agenda/search print it for recurring rows):
+    // detach-edit just that occurrence. Non-schedule fields only — rescheduling one
+    // occurrence is a bigger change (use --all-occurrences, or rm + add).
+    if let occ = Output.parseOccurrenceHandle(id), let series = store.event(id: occ.id), series.recurring {
+        guard start == nil, end == nil, duration == nil, tz == nil, calendar == nil, !allOccurrences else {
+            throw WriteValidationError.occurrenceScheduleUnsupported
+        }
+        var occChanges = EventChanges()
+        if let title {
+            let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { throw WriteValidationError.emptyTitle }
+            occChanges.title = t
+        }
+        if let location { occChanges.location = location }
+        if let notes { occChanges.notes = notes }
+        if let url {
+            if !url.isEmpty, URL(string: url) == nil { throw WriteValidationError.invalidURL(url) }
+            occChanges.url = url
+        }
+        if let availability { occChanges.availability = try validateAvailability(availability) }
+        guard !occChanges.isEmpty else { throw WriteValidationError.noChanges }
+
+        let before = series.detachedOccurrence(at: occ.start)
+        let after = before.applying(occChanges)
+        if dryRun { return .dryRun(json ? Output.jsonLine(after) : diffText(before, after, timeZone: timeZone)) }
+        guard confirm.confirm(diffText(before, after, timeZone: timeZone) + "Apply to this occurrence only?") else { return .aborted }
+        let updated = try store.updateOccurrence(id: occ.id, occurrence: occ.start, occChanges)
+        return .wrote(json ? Output.jsonLine(updated) : eventDetailText(updated, timeZone: timeZone))
+    }
+
     guard let current = store.event(id: id) else { throw WriteError.notFound(id) }
     // An id resolves a recurring series to its anchor, not the occurrence the user
     // saw — editing one occurrence isn't possible yet, so require the whole series.

@@ -28,6 +28,7 @@ public enum WriteValidationError: MaccalError, Equatable {
     case recurringRequiresAllOccurrences  // a recurring event needs --all-occurrences
     case noChanges
     case sameSourceTarget                 // sync --from and --to resolve to the same calendar
+    case occurrenceScheduleUnsupported    // per-occurrence edit can't reschedule/move
 
     public var description: String {
         switch self {
@@ -40,9 +41,11 @@ public enum WriteValidationError: MaccalError, Equatable {
         case .invalidAvailability(let a): return "invalid availability '\(a)' (use busy|free|tentative|unavailable)"
         case .invalidTimeZone(let z): return "invalid time zone '\(z)'"
         case .recurringRequiresAllOccurrences:
-            return "this is a recurring event — re-run with --all-occurrences to change the whole series (per-occurrence edits are not yet supported)"
+            return "this is a recurring event — use the id@epoch handle from agenda/search to edit one occurrence, or --all-occurrences for the whole series"
         case .noChanges: return "no changes given"
         case .sameSourceTarget: return "--from and --to must be different calendars"
+        case .occurrenceScheduleUnsupported:
+            return "editing one occurrence supports title/location/notes/url/availability only — reschedule the series with --all-occurrences, or rm the occurrence and add a new event"
         }
     }
 }

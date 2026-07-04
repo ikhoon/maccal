@@ -763,6 +763,23 @@ do {
 }
 
 do {
+    // edit <id>@<epoch>: detach-edit one occurrence (non-schedule fields only).
+    let s = syncStore([EventInfo.fixture(id: "R", title: "Weekly", calendar: "Work", calendarId: "cal-work",
+                                         start: agToday.addingTimeInterval(day), end: agToday.addingTimeInterval(day + hour),
+                                         location: "Room A", recurring: true)])
+    let d2 = agToday.addingTimeInterval(2 * day)
+    s.seriesOccurrenceDates["R"] = [agToday.addingTimeInterval(day), d2]  // real occurrences (as agenda would show)
+    let handle = Output.occurrenceHandle(id: "R", start: d2)
+    if case .wrote(let out) = try! edit(s, id: handle, location: "Room B") {
+        c.expect(out.contains("Room B"), "edit occurrence applies a non-schedule change")
+    } else { c.expect(false, "edit occurrence returns .wrote") }
+    c.eq(caught { _ = try edit(s, id: handle, start: "2026-06-20T14:00") } as? WriteValidationError,
+         .occurrenceScheduleUnsupported, "edit <handle> --start → occurrenceScheduleUnsupported")
+    c.eq(caught { _ = try edit(s, id: handle, calendar: "Personal") } as? WriteValidationError,
+         .occurrenceScheduleUnsupported, "edit <handle> --calendar → occurrenceScheduleUnsupported")
+}
+
+do {
     let s = editStore()
     _ = try! edit(s, location: "")
     c.eq(s.event(id: "E1")?.location, "", "edit --location '' clears the location")
