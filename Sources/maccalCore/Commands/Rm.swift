@@ -18,6 +18,19 @@ public func runRm(
     confirm: Confirmer,
     timeZone: TimeZone = .current
 ) throws -> WriteResult {
+    // An occurrence handle "<id>@<epoch>" (printed by agenda/search for recurring
+    // rows) cancels just that occurrence of the series via EXDATE — "skip this week".
+    if let occ = Output.parseOccurrenceHandle(id), let series = store.event(id: occ.id), series.recurring {
+        let when = Output.localISO(occ.start, timeZone: timeZone)
+        let what = "the \(when) occurrence of \(Output.sanitize(series.title))"
+        // Keep the --json machine contract: NDJSON out, not plain text.
+        struct Cancelled: Encodable { let cancelled: String; let occurrence: String; let title: String }
+        let payload = Cancelled(cancelled: occ.id, occurrence: when, title: series.title)
+        if dryRun { return .dryRun(json ? Output.jsonLine(payload) : "would cancel \(what)\n") }
+        guard confirm.confirm("Cancel \(what)?") else { return .aborted }
+        try store.cancelOccurrence(id: occ.id, occurrence: occ.start)
+        return .wrote(json ? Output.jsonLine(payload) : "cancelled \(what)\n")
+    }
     guard let event = store.event(id: id) else { throw WriteError.notFound(id) }
     // An id resolves a recurring series to its anchor; deleting one occurrence
     // isn't possible yet, so require the whole series explicitly.

@@ -359,6 +359,7 @@ deleted 1A2B… — Lunch
 maccal rm <id> --dry-run          # show what would be deleted
 maccal rm <id> --yes              # skip the prompt (required when piped)
 maccal rm <id> --all-occurrences  # whole recurring series
+maccal rm "<id>@<epoch>"          # skip ONE occurrence of a repeat (the id agenda/search prints)
 ```
 
 ---
@@ -569,7 +570,7 @@ line to add before `compinit`).
 | Symptom | Fix |
 |---|---|
 | **"Calendar access denied / needs full access"** | Run `maccal auth` once in an interactive Terminal, click Allow. Reset with `tccutil reset Calendar kr.ikhoon.maccal`. |
-| **"this is a recurring event"** | `edit`/`rm` on a recurring series need `--all-occurrences` (per-occurrence edits aren't supported yet). |
+| **"this is a recurring event"** | `edit` on a recurring series needs `--all-occurrences`. To skip a single occurrence, `rm` the `id@epoch` handle that agenda/search print for recurring rows. |
 | **"the event's calendar is read-only"** | Subscribed/holiday calendars can't be modified — pick a writable one (`maccal calendars --writable`). |
 | **"refusing to … without --yes"** | Non-interactive (piped/cron) writes need `--yes`; there's no TTY to confirm on. |
 | **`maccal: command not found`** | `~/.local/bin` (source) or `/opt/homebrew/bin` (brew) isn't on `PATH`. Check with `which maccal`. |

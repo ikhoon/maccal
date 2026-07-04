@@ -70,7 +70,9 @@ public func runSearch(
     let rows = shown.map { ev -> [String] in
         let when = Output.paint(Output.when(ev, timeZone: timeZone), .cyan, enabled: color)
         let title = Output.sanitize(ev.title)
-        let id = Output.paint(ev.id, .dim, enabled: color)
+        // Recurring rows print an occurrence handle (id@epoch) so edit/rm can target one.
+        let idStr = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
+        let id = Output.paint(idStr, .dim, enabled: color)
         return multiCalendar
             ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, id]
             : [when, title, id]

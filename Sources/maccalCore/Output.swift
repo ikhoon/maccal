@@ -178,4 +178,21 @@ public enum Output {
     public static func stripANSI(_ s: String) -> String {
         s.replacingOccurrences(of: "\u{001B}\\[[0-9;]*m", with: "", options: .regularExpression)
     }
+
+    /// A recurring occurrence's stable handle, `<seriesId>@<epoch>` — agenda/search
+    /// print this for recurring rows so `edit`/`rm` can target one occurrence.
+    public static func occurrenceHandle(id: String, start: Date) -> String {
+        "\(id)@\(Int(start.timeIntervalSinceReferenceDate.rounded()))"
+    }
+
+    /// Parse `<id>@<epoch>` back to (id, start), or nil when there's no numeric
+    /// @epoch suffix (a plain id — including emails like `x@host` — stays plain).
+    public static func parseOccurrenceHandle(_ s: String) -> (id: String, start: Date)? {
+        guard let at = s.lastIndex(of: "@") else { return nil }
+        let id = String(s[..<at])
+        // Match occurrenceHandle exactly: a non-empty id and an integer epoch
+        // (rejects 1.0 / 1e3 / nan / inf and an empty id).
+        guard !id.isEmpty, let epoch = Int(s[s.index(after: at)...]) else { return nil }
+        return (id, Date(timeIntervalSinceReferenceDate: Double(epoch)))
+    }
 }
