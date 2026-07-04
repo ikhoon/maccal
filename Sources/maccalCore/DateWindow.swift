@@ -21,8 +21,8 @@ public enum DateWindow {
     }
 
     /// Supported forms (case-insensitive keywords):
-    ///   YYYY-MM-DD | today | tomorrow | yesterday | +Nd | -Nd | +Nw | -Nw
-    ///   | <weekday> | next/this/last <weekday> | next week | last week | in N days|weeks
+    ///   YYYY-MM-DD | today | tomorrow | yesterday | +Nd | -Nd | +Nw | -Nw |
+    ///   <weekday> | next/this/last <weekday> | next week | last week | in N days | in N weeks
     /// Relative forms are resolved against the start of today (not `now`), so
     /// results are stable within a day. Returns a local-midnight Date in `timeZone`.
     public static func parseBound(_ s: String, now: Date, timeZone: TimeZone) throws -> Date {
@@ -111,11 +111,11 @@ public enum DateWindow {
 
         if words.count == 3, words[0] == "in", let n = Int(words[1]), n >= 0 {
             if words[2].hasPrefix("day") { return cal.date(byAdding: .day, value: n, to: today) }
-            if words[2].hasPrefix("week") { return cal.date(byAdding: .day, value: n * 7, to: today) }
+            if words[2].hasPrefix("week") { return cal.date(byAdding: .weekOfYear, value: n, to: today) }
             return nil
         }
-        if s == "next week" { return cal.date(byAdding: .day, value: 7, to: today) }
-        if s == "last week" { return cal.date(byAdding: .day, value: -7, to: today) }
+        if s == "next week" { return cal.date(byAdding: .weekOfYear, value: 1, to: today) }
+        if s == "last week" { return cal.date(byAdding: .weekOfYear, value: -1, to: today) }
 
         var modifier = ""
         var dayWord = s
