@@ -31,6 +31,14 @@ public func runImport(
 
     if dryRun { return .dryRun("would import \(resolved.count) event(s):\n\(preview)\n") }
     guard confirm.confirm("Import \(resolved.count) event(s)?\n\(preview)\n") else { return .aborted }
-    for d in resolved { _ = try store.createEvent(d) }
-    return .wrote("imported \(resolved.count) event(s)\n")
+    // Best-effort rollback: if one create fails, remove the ones already made so a
+    // retry doesn't duplicate a half-imported batch.
+    var created: [EventInfo] = []
+    do {
+        for d in resolved { created.append(try store.createEvent(d)) }
+    } catch {
+        for e in created { _ = try? store.deleteEvent(id: e.id, span: .thisEvent) }
+        throw error
+    }
+    return .wrote("imported \(created.count) event(s)\n")
 }

@@ -31,6 +31,7 @@ public enum ICS {
                 out.append(ch)
             }
         }
+        if esc { out.append("\\") } // a trailing lone backslash is kept, not dropped
         return out
     }
 
@@ -121,8 +122,10 @@ public enum ICS {
         var drafts: [EventDraft] = []
         var fields: [String: (params: String, value: String)]? = nil
         for line in unfolded {
-            if line == "BEGIN:VEVENT" { fields = [:]; continue }
-            if line == "END:VEVENT" {
+            // RFC 5545 property names (and BEGIN/END) are case-insensitive.
+            let upper = line.uppercased()
+            if upper == "BEGIN:VEVENT" { fields = [:]; continue }
+            if upper == "END:VEVENT" {
                 if let f = fields, let d = draft(from: f, timeZone: timeZone) { drafts.append(d) }
                 fields = nil
                 continue

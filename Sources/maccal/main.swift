@@ -743,7 +743,12 @@ struct ImportCommand: ParsableCommand {
     func run() throws {
         let text: String
         if file == "-" {
-            text = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            guard let s = String(data: data, encoding: .utf8) else {
+                FileHandle.standardError.write(Data("maccal: stdin is not valid UTF-8\n".utf8))
+                throw ExitCode(1)
+            }
+            text = s
         } else {
             guard let s = try? String(contentsOfFile: file, encoding: .utf8) else {
                 FileHandle.standardError.write(Data("maccal: cannot read \(file)\n".utf8))

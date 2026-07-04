@@ -1700,6 +1700,10 @@ do {
              "import creates the parsed events")
     c.eq(caught { _ = try runImport(store: s, drafts: [], calendar: nil, dryRun: false, confirm: AutoYes(), timeZone: kst) } as? WriteValidationError,
          .noEventsToImport, "empty import → noEventsToImport")
+
+    // RFC 5545 property names (and BEGIN/END) are case-insensitive.
+    c.eq(ICS.parse("begin:vevent\r\nSUMMARY:lower\r\nDTSTART:20260101T000000Z\r\nend:vevent", timeZone: kst).first?.title,
+         "lower", "lowercase BEGIN/END still parse")
 }
 
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
