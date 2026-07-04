@@ -16,16 +16,15 @@ public enum SyncStatus {
 
     /// Record a successful sync (best-effort; any failure is ignored). The caller
     /// passes the time, so this stays free of hidden clock reads.
-    public static func record(at date: Date, summary: String) {
-        let url = fileURL
+    public static func record(at date: Date, summary: String, to url: URL = fileURL) {
         try? FileManager.default.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? "\(date.timeIntervalSince1970)\n\(summary)".write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// The last successful sync (time + summary), or nil if none is recorded.
-    public static func last() -> (date: Date, summary: String)? {
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
+    public static func last(from url: URL = fileURL) -> (date: Date, summary: String)? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
         let lines = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
         guard let first = lines.first, let t = TimeInterval(first.trimmingCharacters(in: .whitespaces))
         else { return nil }
