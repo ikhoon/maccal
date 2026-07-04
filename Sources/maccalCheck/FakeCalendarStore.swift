@@ -78,7 +78,12 @@ final class FakeCalendarStore: CalendarStore {
         guard let idx = eventList.firstIndex(where: { $0.id == id }) else { throw WriteError.notFound(id) }
         try ensureWritable(eventList[idx])
         lastSpan = span
-        let updated = eventList[idx].applying(changes)
+        var updated = eventList[idx].applying(changes)
+        // Move to another calendar when requested (validates existence + writable).
+        if let sel = changes.calendar {
+            let target = try resolveCalendar(sel)
+            updated = updated.movingTo(calendar: target.title, calendarId: target.calendarIdentifier)
+        }
         eventList[idx] = updated
         return updated
     }

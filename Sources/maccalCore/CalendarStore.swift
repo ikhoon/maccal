@@ -232,6 +232,18 @@ extension EventInfo {
             recurrenceRule: c.recurrenceRule ?? recurrenceRule
         )
     }
+
+    /// A copy relocated to another calendar (title + id); all other fields kept.
+    /// `applying` can't resolve a `--calendar` selector to a (title, id) pair, so
+    /// runEdit and the stores use this to reflect the move.
+    public func movingTo(calendar: String, calendarId: String) -> EventInfo {
+        EventInfo(
+            id: id, calendar: calendar, calendarId: calendarId, title: title,
+            start: start, end: end, allDay: allDay, timeZone: timeZone,
+            location: location, notes: notes, url: url, status: status,
+            availability: availability, organizer: organizer, attendees: attendees,
+            recurring: recurring, recurrenceRule: recurrenceRule)
+    }
 }
 
 /// Which occurrences a write touches. Maps to EKSpan; for non-recurring events
@@ -296,11 +308,14 @@ public struct EventChanges: Sendable, Equatable {
     public var availability: String?
     /// Recurrence rule to apply; nil leaves the event's recurrence unchanged.
     public var recurrenceRule: RecurrenceRule?
+    /// Move the event to this calendar (title or identifier); nil leaves it put.
+    public var calendar: String?
 
     public init(
         title: String? = nil, start: Date? = nil, end: Date? = nil, allDay: Bool? = nil,
         timeZoneId: String? = nil, location: String? = nil, notes: String? = nil,
-        url: String? = nil, availability: String? = nil, recurrenceRule: RecurrenceRule? = nil
+        url: String? = nil, availability: String? = nil, recurrenceRule: RecurrenceRule? = nil,
+        calendar: String? = nil
     ) {
         self.title = title
         self.start = start
@@ -312,13 +327,14 @@ public struct EventChanges: Sendable, Equatable {
         self.url = url
         self.availability = availability
         self.recurrenceRule = recurrenceRule
+        self.calendar = calendar
     }
 
     /// True when no field is set — the command layer maps this to "no changes".
     public var isEmpty: Bool {
         title == nil && start == nil && end == nil && allDay == nil && timeZoneId == nil
             && location == nil && notes == nil && url == nil && availability == nil
-            && recurrenceRule == nil
+            && recurrenceRule == nil && calendar == nil
     }
 }
 

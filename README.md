@@ -330,11 +330,13 @@ Location: Room 4F → Room A
 maccal edit <id> --title "Renamed" --yes
 maccal edit <id> --start "tomorrow 16:00"        # end shifts to keep duration
 maccal edit <id> --notes "" --yes                # empty string clears the field
+maccal edit <id> --calendar Personal --yes       # move the event to another calendar
 maccal edit <id> --notes "Agenda attached" --all-occurrences   # whole recurring series
 ```
 
 Flags: `--title`, `--start`/`--end`/`--duration`, `--location`/`--notes`/`--url`,
-`--tz`, `--availability`, `--all-occurrences`, `--json`, `--dry-run`, `--yes`.
+`--tz`, `--availability`, `--calendar` (move to another calendar),
+`--all-occurrences`, `--json`, `--dry-run`, `--yes`.
 
 ---
 

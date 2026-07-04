@@ -23,6 +23,7 @@ public func runEdit(
     notes: String?,
     url: String?,
     availability: String?,
+    calendar: String?,
     allOccurrences: Bool,
     json: Bool,
     dryRun: Bool,
@@ -32,6 +33,7 @@ public func runEdit(
 ) throws -> WriteResult {
     let hasFieldFlag = title != nil || start != nil || end != nil || duration != nil
         || tz != nil || location != nil || notes != nil || url != nil || availability != nil
+        || calendar != nil
     guard hasFieldFlag else { throw WriteValidationError.noChanges }
     if end != nil, duration != nil { throw WriteValidationError.endAndDurationConflict }
 
@@ -107,8 +109,27 @@ public func runEdit(
         changes.url = url
     }
     if let availability { changes.availability = try validateAvailability(availability) }
+    var movedTarget: CalendarInfo?
+    if let calendar {
+        // Resolve + validate now so a bad --calendar fails on --dry-run too.
+        let matches = store.calendars().filter {
+            $0.title.localizedCaseInsensitiveCompare(calendar) == .orderedSame
+                || $0.calendarIdentifier.caseInsensitiveCompare(calendar) == .orderedSame
+        }
+        guard matches.count == 1, let target = matches.first else {
+            throw matches.isEmpty ? WriteError.calendarNotFound(calendar) : WriteError.ambiguousCalendar(calendar)
+        }
+        guard target.writable else { throw WriteError.notWritable }
+        changes.calendar = calendar   // keep the user's selector; the store resolves it
+        movedTarget = target
+    }
 
-    let after = current.applying(changes)
+    var after = current.applying(changes)
+    if let t = movedTarget {
+        // applying can't resolve the selector → (title, id); fix the preview so the
+        // diff and --dry-run --json show the real target calendar.
+        after = after.movingTo(calendar: t.title, calendarId: t.calendarIdentifier)
+    }
     if dryRun {
         return .dryRun(json ? Output.jsonLine(after) : diffText(current, after, timeZone: parseZone))
     }
@@ -131,6 +152,7 @@ private func diffText(_ before: EventInfo, _ after: EventInfo, timeZone: TimeZon
 
     var lines: [String] = []
     if before.title != after.title { lines.append("Title: \(show(before.title)) → \(show(after.title))") }
+    if before.calendar != after.calendar { lines.append("Calendar: \(show(before.calendar)) → \(show(after.calendar))") }
     if when(before) != when(after) { lines.append("When: \(when(before)) → \(when(after))") }
     if before.location != after.location { lines.append("Location: \(show(before.location)) → \(show(after.location))") }
     if before.notes != after.notes { lines.append("Notes: \(show(before.notes)) → \(show(after.notes))") }

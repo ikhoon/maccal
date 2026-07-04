@@ -110,7 +110,7 @@ One-way mirror of one or more source calendars into a target calendar over a win
   `allDay`/`end`/`timeZone`. (`rm` no longer emits a bespoke `{deleted:…}` record.) `edit`'s *text* dry-run shows a
   before→after diff while success echoes the full event — intentional (a new event has no before-state).
 - **`add --calendar` takes exactly one calendar** (a new event lives in one), unlike the repeatable `--calendar` union on
-  `agenda`/`search`. `edit --calendar` (moving an event) is deferred.
+  `agenda`/`search`. `edit --calendar` moves an event to another writable calendar.
 - **A date-only `--start` (no `--end`/`--duration`) creates an all-day event**; all-day events need whole-day,
   date-only bounds (a clock time or sub-day `--duration` is rejected). The preview/`show` block surfaces `All-day: yes`.
 - **all-day ↔ timed toggle on `edit` is deferred** — `edit` preserves an event's all-day-ness and snaps bounds to
