@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# mock `maccal` for the README demo gif — prints canned, fictional output and
+# touches nothing (no EventKit, no real calendar). Used only under vhs.
+sub="${1:-}"; shift 2>/dev/null || true
+case "$sub" in
+  calendars)
+    printf '%-13s %-19s %-14s %-4s %s\n' "Work" "you@example.com" "caldav" "rw" "#FFCC00"
+    printf '%-13s %-19s %-14s %-4s %s\n' "Personal" "you@example.com" "caldav" "rw" "#83D754"
+    printf '%-13s %-19s %-14s %-4s %s\n' "Holidays" "Subscriptions" "subscription" "ro" "#16A765"
+    ;;
+  agenda)
+    printf '%-27s %-16s %s\n' "2026-06-23T10:30:00+09:00" "Standup" "1A2B…/RID"
+    printf '%-27s %-16s %s\n' "2026-06-23T14:00:00+09:00" "Design review" "1A2B…@example.com"
+    printf '%-27s %-16s %s\n' "2026-06-23T17:00:00+09:00" "1:1 with Sam" "1A2B…@example.com"
+    ;;
+  search)
+    printf '%-27s %-16s %s\n' "2026-06-23T10:30:00+09:00" "Standup" "1A2B…/RID"
+    printf '%-27s %-16s %s\n' "2026-06-16T10:30:00+09:00" "Standup" "9F3C…/RID"
+    printf 'total: 2\n'
+    ;;
+  add)
+    printf 'Title:        Lunch\n'
+    printf 'When:         2026-06-24T12:00:00+09:00 — 2026-06-24T13:00:00+09:00\n'
+    printf 'Calendar:     Personal\n'
+    printf 'Status:       confirmed\n'
+    printf 'Availability: busy\n'
+    ;;
+  *) printf 'maccal %s\n' "$sub" ;;
+esac

@@ -19,12 +19,9 @@
   <a href="https://github.com/ikhoon/macrec">macrec</a> (meeting recorder)</sub>
 </p>
 
-```console
-$ maccal agenda --calendar Work
-2026-06-23T10:30:00+09:00   Standup          1A2B…/RID=…
-2026-06-23T14:00:00+09:00   Design review    1A2B…@example.com
-2026-06-23T17:00:00+09:00   1:1 with Sam     1A2B…@example.com
-```
+<p align="center">
+  <img src="assets/demo-cli.gif" alt="maccal CLI demo — calendars, agenda, add, search" width="820">
+</p>
 
 Backed by **EventKit** — the local store macOS already syncs from your accounts —
 so the only permission it needs is **Calendars**, granted to *maccal itself*
@@ -415,23 +412,54 @@ $ maccal auth        # a "maccal" dialog appears → click Allow
 
 ## Menu-bar sync app (maccal.app)
 
-`maccal sync` shines in a `launchd`/`cron` job — but if you'd rather not hand-write
-one, **maccal.app** is a tiny menu-bar companion that runs the sync for you on a
-schedule and keeps it going in the background.
+Not everyone wants to hand-write a `launchd` job. **maccal.app** is a menu-bar
+companion that schedules `maccal sync` for you and keeps it running in the
+background — set your calendars once and forget it.
 
-- **Pick sources + a target** in Settings — checkbox multi-select for source
-  calendars, one target, an interval, and what detail to copy (title is always
-  included; location and notes are toggles).
-- **Automatic background sync** — once sources and a target are set, a `launchd`
-  job runs `maccal sync … --yes` on your interval. There's no "run in background"
-  switch to remember; it just works, and the menu shows the **last-synced** time.
-- **Keep awake for sync** — an optional toggle that prevents *idle* sleep so a
-  scheduled sync still fires while the Mac sits idle. (Closing the lid still
-  sleeps — a macOS limitation.)
-- **Start at login** toggle, right in the menu.
-- **Self-contained** — the app bundles the `maccal` CLI, so background sync works
-  **without** a separate `brew install maccal`; the bundled CLI shares the app's
-  Calendar grant.
+A calendar icon with a small sync overlay sits in your menu bar. Click it for the
+current status — the calendars you're mirroring, the target, and when the last
+sync ran — plus **Sync now**, **Settings…**, and the toggles below.
+
+### Settings
+
+Open **Settings…** from the menu. Changes save immediately and the background job
+re-registers itself on every change — no restart, no "apply".
+
+| Setting | What it does | Default |
+|---|---|---|
+| **Sources** | Calendars to mirror **from** — a checkbox list, pick as many as you like | — |
+| **Target** | The one calendar to mirror **into** (must be writable) | — |
+| **Interval** | How often the background sync runs | 30 min |
+| **Detail** | What each copy carries — **Title** (always on) plus **Location** and **Notes** toggles | Title + Location |
+
+Once **Sources** and a **Target** are set, background sync just starts — there's
+no "run in background" switch to remember. The menu shows the **last-synced** time
+and a compact tally (`+N new  ~N changed  −N removed`), updated by both manual
+**Sync now** runs and the scheduled `launchd` job (via a small shared last-sync
+record, so background runs show up too).
+
+### Menu toggles
+
+| Toggle | What it does |
+|---|---|
+| **Keep awake for sync** | Holds an `IOPMAssertion` so the Mac won't **idle-sleep** and miss a scheduled sync. *(Closing the lid still sleeps — a macOS limitation.)* |
+| **Start at login** | Registers the app as a login item, so it's back after every reboot. |
+
+Both are custom menu items that **don't dismiss the menu when clicked** — flip
+several in a row — while keeping the native look (SF Symbol, checkmark, hover
+highlight).
+
+### Why a bundled CLI?
+
+The app **bundles the `maccal` CLI** and runs *that* copy for background sync:
+
+- **No separate install.** The app is self-contained — you don't also need
+  `brew install maccal`.
+- **One Calendar grant.** The bundled CLI is signed with the app's identity, so it
+  **shares the app's Calendar permission** instead of prompting — which a
+  background job couldn't answer anyway.
+- **Never out of step.** CLI and app ship together, so their sync-marker format
+  and flags can't drift apart.
 
 ### Install the app
 
