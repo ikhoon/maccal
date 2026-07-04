@@ -188,8 +188,11 @@ public enum Output {
     /// Parse `<id>@<epoch>` back to (id, start), or nil when there's no numeric
     /// @epoch suffix (a plain id — including emails like `x@host` — stays plain).
     public static func parseOccurrenceHandle(_ s: String) -> (id: String, start: Date)? {
-        guard let at = s.lastIndex(of: "@"),
-              let epoch = Double(s[s.index(after: at)...]) else { return nil }
-        return (String(s[..<at]), Date(timeIntervalSinceReferenceDate: epoch))
+        guard let at = s.lastIndex(of: "@") else { return nil }
+        let id = String(s[..<at])
+        // Match occurrenceHandle exactly: a non-empty id and an integer epoch
+        // (rejects 1.0 / 1e3 / nan / inf and an empty id).
+        guard !id.isEmpty, let epoch = Int(s[s.index(after: at)...]) else { return nil }
+        return (id, Date(timeIntervalSinceReferenceDate: Double(epoch)))
     }
 }

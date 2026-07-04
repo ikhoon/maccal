@@ -1428,6 +1428,9 @@ do {
              "occurrence handle round-trips start")
     c.expect(Output.parseOccurrenceHandle("abc@example.com") == nil, "email-like id is not an occurrence handle")
     c.expect(Output.parseOccurrenceHandle("plainid") == nil, "plain id → nil")
+    c.expect(Output.parseOccurrenceHandle("R@1.5") == nil, "non-integer epoch → not a handle")
+    c.expect(Output.parseOccurrenceHandle("R@1e3") == nil, "scientific epoch → not a handle")
+    c.expect(Output.parseOccurrenceHandle("@123") == nil, "empty id → not a handle")
 }
 
 do {
@@ -1442,6 +1445,12 @@ do {
                    allOccurrences: false, json: false, dryRun: false, confirm: AutoYes(), timeZone: kst)
     c.expect(!s.seriesOccurrences(id: "R", in: win).contains(d2), "rm <id>@<epoch> cancels that occurrence")
     c.expect(s.seriesOccurrences(id: "R", in: win).contains(d1), "other occurrences of the series remain")
+    // json contract: rm <handle> --json emits NDJSON, not plain text.
+    let j = try! runRm(store: s, id: Output.occurrenceHandle(id: "R", start: d1),
+                       allOccurrences: false, json: true, dryRun: true, confirm: AutoYes(), timeZone: kst)
+    if case .dryRun(let out) = j {
+        c.expect(out.hasPrefix("{") && out.contains("\"cancelled\""), "rm <handle> --json emits NDJSON")
+    } else { c.expect(false, "occurrence rm --json --dry-run returns .dryRun") }
 }
 
 do {
