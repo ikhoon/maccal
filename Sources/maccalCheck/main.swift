@@ -198,6 +198,24 @@ do {
 }
 
 do {
+    // natural-language dates (weekday results are asserted by weekday + direction,
+    // so they don't depend on which weekday kstNow happens to be).
+    func nl(_ s: String) -> Date { try! DateWindow.parseBound(s, now: kstNow, timeZone: kst) }
+    let today = kstCal.startOfDay(for: kstNow)
+    c.eq(nl("in 3 days"), kstCal.date(byAdding: .day, value: 3, to: today)!, "in 3 days")
+    c.eq(nl("in 2 weeks"), kstCal.date(byAdding: .day, value: 14, to: today)!, "in 2 weeks")
+    c.eq(nl("next week"), kstCal.date(byAdding: .day, value: 7, to: today)!, "next week = +7d")
+    c.eq(nl("last week"), kstCal.date(byAdding: .day, value: -7, to: today)!, "last week = -7d")
+    c.eq(kstCal.component(.weekday, from: nl("friday")), 6, "bare 'friday' resolves to a Friday")
+    c.expect(nl("friday") > today, "bare weekday is upcoming (future)")
+    c.eq(kstCal.component(.weekday, from: nl("Monday")), 2, "weekday is case-insensitive")
+    c.expect(nl("last friday") < today && kstCal.component(.weekday, from: nl("last friday")) == 6,
+             "last friday is a past Friday")
+    c.expect(throwsParsing { _ = try DateWindow.parseBound("someday", now: kstNow, timeZone: kst) },
+             "unknown natural-language phrase still throws")
+}
+
+do {
     let today = kstCal.startOfDay(for: kstNow)
     let agenda = try! DateWindow.window(from: nil, to: nil, now: kstNow, timeZone: kst, defaultFromDays: 0, defaultSpanDays: 7)
     c.eq(agenda.start, today, "agenda default window starts today")

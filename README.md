@@ -535,6 +535,7 @@ shares this grant — background sync needs no separate prompt.
 | Calendar date | `2026-07-01` |
 | Keyword | `today` · `tomorrow` · `yesterday` |
 | Signed offset | `+7d` · `-3d` · `+2w` |
+| Natural language | `friday` · `next monday` · `last friday` · `next week` · `in 3 days` · `in 2 weeks` |
 | Timed | `2026-07-01T14:30` · `'2026-07-01 14:30'` · `'today 14:30'` · `'+1d 09:00'` |
 
 `--duration` is a single unit or descending compound: `30m`, `1h`, `1h30m`, `2d`,
