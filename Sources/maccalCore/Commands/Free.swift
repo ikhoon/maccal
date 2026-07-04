@@ -28,8 +28,12 @@ public func runFree(
     var slots: [DateInterval] = []
     var day = cal.startOfDay(for: window.start)
     while day < window.end {
+        // Hour 24 = the next midnight (bySettingHour: 24 would return nil).
+        let we = workEndHour == 24
+            ? cal.date(byAdding: .day, value: 1, to: day)
+            : cal.date(bySettingHour: workEndHour, minute: 0, second: 0, of: day)
         if let ws = cal.date(bySettingHour: workStartHour, minute: 0, second: 0, of: day),
-           let we = cal.date(bySettingHour: workEndHour, minute: 0, second: 0, of: day), we > ws {
+           let we, we > ws {
             let lo = max(ws, window.start), hi = min(we, window.end)
             if hi > lo {
                 slots += freeGaps(in: DateInterval(start: lo, end: hi), busy: busy, minDuration: minDuration)
@@ -43,7 +47,8 @@ public func runFree(
         struct Slot: Encodable { let start: Date; let end: Date; let minutes: Int }
         return Output.ndjson(slots.map { Slot(start: $0.start, end: $0.end, minutes: Int($0.duration / 60)) })
     }
-    if slots.isEmpty { return "no free slots\n" }
+    // Empty output for no slots, matching agenda/search (Output.tsv([]) == "") so
+    // scripts can treat empty as "no rows".
     let rows = slots.map {
         [Output.localISO($0.start, timeZone: timeZone), Output.localISO($0.end, timeZone: timeZone), "(\(durationText($0.duration)))"]
     }

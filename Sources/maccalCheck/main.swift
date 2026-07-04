@@ -1752,6 +1752,17 @@ do {
         .split(separator: "\n").filter { !$0.isEmpty }
     c.eq(full.count, 1, "an availability=free event doesn't split the day")
     c.expect(full.first?.contains("\"minutes\":540") ?? false, "whole 09–18 stays free (540 min)")
+    // work-end 24 reaches midnight (bySettingHour:24 would be nil)
+    let late = runFree(store: FakeCalendarStore(events: []), window: win, minDuration: 3600, workStartHour: 9, workEndHour: 24, json: true, timeZone: kst)
+        .split(separator: "\n").filter { !$0.isEmpty }
+    c.eq(late.count, 1, "work-end 24 → one slot to midnight")
+    c.expect(late.first?.contains("\"minutes\":900") ?? false, "09–24 = 900 min")
+    // a fully-booked day → empty text (like agenda/search), not a message
+    let booked = EventInfo.fixture(id: "X", title: "busy", calendar: "Work",
+        start: kstCal.date(bySettingHour: 9, minute: 0, second: 0, of: dayStart)!,
+        end: kstCal.date(bySettingHour: 18, minute: 0, second: 0, of: dayStart)!)
+    c.eq(runFree(store: FakeCalendarStore(events: [booked]), window: win, minDuration: 3600, workStartHour: 9, workEndHour: 18, json: false, timeZone: kst),
+         "", "a fully-booked day → empty text (scripting-friendly)")
 }
 
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
