@@ -407,11 +407,17 @@ schedule and keeps it going in the background.
 
 ### Install the app
 
-**Homebrew cask** (recommended — updates with `brew upgrade`):
+**Homebrew cask** (recommended) — installs the app **and** puts the bundled `maccal`
+CLI on your `PATH`, so this one command gives you both the GUI and the terminal
+command (updates with `brew upgrade`):
 
 ```console
-$ brew install --cask ikhoon/tap/maccal-menubar
+$ brew install --cask ikhoon/tap/maccal-app
 ```
+
+> Only want the terminal CLI, no app? Install the [formula](#homebrew-recommended)
+> instead — `brew install ikhoon/tap/maccal`. Both put `maccal` on `PATH`, so pick
+> one, not both.
 
 **From source** — build a universal `maccal.app`, install to `/Applications`, launch:
 
