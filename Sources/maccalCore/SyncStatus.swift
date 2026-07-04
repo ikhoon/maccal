@@ -1,7 +1,7 @@
 // SyncStatus.swift — a shared "last successful sync" record (timestamp + a
-// one-line summary), written by BOTH the CLI (the background launchd job) and
-// the menu-bar app, and read by the app's menu. This lets the menu reflect
-// background syncs, not just manual "Sync now"s.
+// short summary; any embedded newlines are preserved), written by BOTH the CLI
+// (the background launchd job) and the menu-bar app, and read by the app's menu.
+// This lets the menu reflect background syncs, not just manual "Sync now"s.
 
 import Foundation
 

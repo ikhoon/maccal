@@ -1429,6 +1429,9 @@ do {
 
     try? "not-a-number\nx".write(to: tmp, atomically: true, encoding: .utf8)
     c.expect(SyncStatus.last(from: tmp) == nil, "SyncStatus: unparsable timestamp -> nil")
+
+    try? "".write(to: tmp, atomically: true, encoding: .utf8)
+    c.expect(SyncStatus.last(from: tmp) == nil, "SyncStatus: empty file -> nil")
 }
 
 // MARK: SyncAgent (menu-bar app's launchd job spec)
