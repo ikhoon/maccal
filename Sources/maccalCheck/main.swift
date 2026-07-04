@@ -1094,8 +1094,9 @@ do {
 }
 
 do {
-    // Empty-id source events are skipped — a "" id would collapse the marker to
-    // srcId="" and group unrelated copies together.
+    // Empty-id source events are skipped: their marker's srcId would be empty and
+    // parseSyncMarker can't read it back, so the copy would be unmanaged
+    // (re-created every run). Only id-bearing events mirror.
     let s = syncStore([srcEvent("", "Ghost", 1), srcEvent("E1", "Real", 2)])
     _ = try! syncRun(s)
     let copies = syncedCopies(s)

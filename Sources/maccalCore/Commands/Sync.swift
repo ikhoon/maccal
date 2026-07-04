@@ -199,8 +199,9 @@ public func runSync(
     var toCreate: [EventDraft] = []
     var toUpdate: [(id: String, changes: EventChanges, draft: EventDraft, span: WriteSpan)] = []
     for s in sourceEvents {
-        // Skip events with no stable id: the marker would collapse to srcId=""
-        // and group unrelated copies together.
+        // Skip events with no stable id: their marker (maccal-sync://<epoch>/)
+        // has an empty srcId that parseSyncMarker can't read back, so the copy
+        // would be unmanaged — re-created on every run instead of matched/updated.
         guard !s.id.isEmpty else { continue }
         // A recurring series expands to many occurrences sharing one id; copy it
         // ONCE as a rule-bearing event, using the series anchor (its start/end +
