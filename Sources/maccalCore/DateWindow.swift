@@ -21,7 +21,8 @@ public enum DateWindow {
     }
 
     /// Supported forms (case-insensitive keywords):
-    ///   YYYY-MM-DD | today | tomorrow | yesterday | +Nd | -Nd | +Nw | -Nw
+    ///   YYYY-MM-DD | today | tomorrow | yesterday | +Nd | -Nd | +Nw | -Nw |
+    ///   <weekday> | next/this/last <weekday> | next week | last week | in N days | in N weeks
     /// Relative forms are resolved against the start of today (not `now`), so
     /// results are stable within a day. Returns a local-midnight Date in `timeZone`.
     public static func parseBound(_ s: String, now: Date, timeZone: TimeZone) throws -> Date {
@@ -38,6 +39,7 @@ public enum DateWindow {
         }
 
         if let relative = relativeOffset(trimmed, calendar: cal, from: today) { return relative }
+        if let natural = naturalDate(trimmed.lowercased(), calendar: cal, from: today) { return natural }
         if let explicit = explicitDate(trimmed, calendar: cal) { return explicit }
         throw ParseError(input: s)
     }
@@ -94,5 +96,44 @@ public enum DateWindow {
         let back = cal.dateComponents([.year, .month, .day], from: date)
         guard back.year == y, back.month == m, back.day == d else { return nil }
         return cal.startOfDay(for: date)
+    }
+
+    private static let weekdayIndex: [String: Int] = [
+        "sunday": 1, "monday": 2, "tuesday": 3, "wednesday": 4, "thursday": 5, "friday": 6, "saturday": 7,
+        "sun": 1, "mon": 2, "tue": 3, "wed": 4, "thu": 5, "fri": 6, "sat": 7,
+    ]
+
+    /// Natural-language dates (already lowercased): a bare `<weekday>` (the
+    /// upcoming one, never today), `next/this/last <weekday>`, `next week` /
+    /// `last week`, and `in N days` / `in N weeks`.
+    private static func naturalDate(_ s: String, calendar cal: Calendar, from today: Date) -> Date? {
+        let words = s.split(separator: " ").map(String.init)
+
+        if words.count == 3, words[0] == "in", let n = Int(words[1]), n >= 0 {
+            if words[2].hasPrefix("day") { return cal.date(byAdding: .day, value: n, to: today) }
+            if words[2].hasPrefix("week") { return cal.date(byAdding: .weekOfYear, value: n, to: today) }
+            return nil
+        }
+        if s == "next week" { return cal.date(byAdding: .weekOfYear, value: 1, to: today) }
+        if s == "last week" { return cal.date(byAdding: .weekOfYear, value: -1, to: today) }
+
+        var modifier = ""
+        var dayWord = s
+        if words.count == 2, ["next", "this", "last"].contains(words[0]) {
+            modifier = words[0]; dayWord = words[1]
+        } else if words.count != 1 {
+            return nil
+        }
+        guard let target = weekdayIndex[dayWord] else { return nil }
+
+        let todayWd = cal.component(.weekday, from: today)
+        var delta = (target - todayWd + 7) % 7               // 0..6, the upcoming one (0 = today)
+        switch modifier {
+        case "next": delta = delta == 0 ? 7 : delta          // upcoming; if today, next week's
+        case "last": delta = delta == 0 ? -7 : delta - 7     // most recent past occurrence
+        case "this": break                                   // this week's — today allowed
+        default: delta = delta == 0 ? 7 : delta              // bare weekday = the upcoming one, not today
+        }
+        return cal.date(byAdding: .day, value: delta, to: today)
     }
 }
