@@ -15,7 +15,7 @@ The testable core, permission gate, output layer, test harness, install path, an
 - [x] SwiftPM package (Swift 6, macOS 14+): `maccalCore` (logic) · `maccal` (CLI wiring) · `maccalCheck` (tests)
 - [x] `CalendarStore` protocol seam + `EKCalendarStore` (EK→DTO mapping) + `FakeCalendarStore` for tests
 - [x] `calendars` command — `--json` (NDJSON), `--writable`, `--source` filter, stable (source, title) sort
-- [x] `CalendarAccess` permission gate — full/write-only/denied, TTY dialog + deep link, `MACCAL_NO_PERMISSION_PROMPT`
+- [x] `CalendarAccess` permission gate — full/write-only/denied, TTY dialog + deep link
 - [x] `Output` — TSV (human) + NDJSON (UTC ISO-8601), with `localISO`/`localDate` helpers staged for events
 - [x] `maccalCheck` harness — 21 checks, all passing
 - [x] `install.sh` — build → codesign (stable id `kr.ikhoon.maccal`, grant survives rebuilds) → symlink into `~/.local`
@@ -61,6 +61,7 @@ Create and modify events. `CalendarAccess` already supports `needsWrite` / write
 - [x] Shell completions — generated from the binary by `install.sh` (zsh + bash)
 - [x] `README.md` — install, the independent-permission note, command reference, dates/durations, JSON scripting, troubleshooting
 - [ ] Configuration — default calendar (config file and/or env var)
+- [ ] Filtering — opt-in `agenda`/`search` filters to hide cancelled events (and declined, once a self-participant flag is mapped onto `AttendeeInfo`)
 - [x] Versioning — SemVer git tags (`v0.2.0`); the `--version` string (main.swift) and Info.plist are bumped together by hand.
 - [x] CI — GitHub Actions (`macos-latest`) builds and runs the pure suite (`swift run maccalCheck`) on push/PR. The live EventKit round-trip (`swift run maccalCheck --integration`) is **local-only** (needs a Calendar grant), so CI omits it. (Linux can't build at all: EventKit/AppKit.)
 
@@ -72,9 +73,9 @@ One-way mirror of one or more source calendars into a target calendar over a win
 
 - [x] `sync --from… --to` — `--from` repeats (union of sources); each selector is `"Account/*"` (whole account), `"Account/Calendar"`, or a bare title/identifier (disambiguates names shared across accounts). Idempotent mirror over a date window (default today … +30d); each copy carries a hidden url marker (`maccal-sync://<epoch>/<srcId>`) keyed on the source occurrence (id + start)
 - [x] Re-run diff — create new, update changed, mirror-delete gone + duplicate copies (`--no-delete` to keep); only marker-bearing copies are ever touched, so the target's own events are safe
-- [x] Detail levels — title+time+location (default), `--notes` (body), `--busy` (opaque "Busy" — forces availability too); `--since`/`--until`, `--json`, `--dry-run`, `--yes`
+- [x] Detail levels — title+time+location (default; title always included), `--notes` (body), `--no-location` (omit the location); `--since`/`--until`, `--json`, `--dry-run`, `--yes`. (An opaque "Busy" mode — dropping the real title — was removed; the `SyncDetail.title` bit exists but is not exposed on the CLI. Revisit if needed.)
 - [x] `WriteValidationError.sameSourceTarget`; source → `calendarNotFound`, ambiguous → `ambiguousCalendar`, read-only target → `notWritable`
-- [x] Checks: marker round-trip, account selector, multi-source union, idempotent / update / tz-change / mirror-delete / duplicate-converge / --no-delete / busy / notes / errors / dry-run / abort against `FakeCalendarStore` (335 checks total)
+- [x] Checks: marker round-trip, account selector, multi-source union, idempotent / update / tz-change / mirror-delete / duplicate-converge / --no-delete / no-location / notes / errors / dry-run / abort against `FakeCalendarStore`
 
 ---
 

@@ -55,6 +55,16 @@ enum Settings {
 
 @MainActor
 func resolveMaccalPath() -> String {
+    // Prefer the CLI bundled inside this app (Contents/MacOS/maccal) so the
+    // menu-bar app is self-contained — no separate `brew install maccal`. Run
+    // from the bundle, the CLI shares this app's Calendar (TCC) grant and reports
+    // the app's version. Fall back to an installed CLI when not bundled.
+    if let bundled = Bundle.main.executableURL?
+        .deletingLastPathComponent()
+        .appendingPathComponent("maccal").path,
+       FileManager.default.isExecutableFile(atPath: bundled) {
+        return bundled
+    }
     let candidates = [
         "/opt/homebrew/bin/maccal",
         "/usr/local/bin/maccal",

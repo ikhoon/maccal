@@ -64,8 +64,13 @@ public func runEdit(
     } else if let duration {
         newEndRaw = cal.date(byAdding: try DateTime.parseDuration(duration), to: newStartRaw)!
     } else if start != nil {
-        // Start moved with no new end: shift end by the same delta (keep duration).
-        newEndRaw = current.end.addingTimeInterval(newStartRaw.timeIntervalSince(current.start))
+        // Start moved with no new end: keep the wall-clock duration. Adding the
+        // raw second delta drifts across a DST boundary (a 1h event could become
+        // 0h/2h), so re-add the original span in calendar components — DST-safe,
+        // matching the date math everywhere else.
+        let span = cal.dateComponents([.day, .hour, .minute, .second], from: current.start, to: current.end)
+        newEndRaw = cal.date(byAdding: span, to: newStartRaw)
+            ?? current.end.addingTimeInterval(newStartRaw.timeIntervalSince(current.start))
     } else {
         newEndRaw = current.end
     }

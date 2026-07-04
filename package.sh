@@ -22,17 +22,23 @@ cd "$SCRIPT_DIR"
 
 IDENTIFIER="kr.ikhoon.maccalbar"
 VERSION="$(git describe --tags --always)"
+INSTALL=0
+[ "${1:-}" = "--install" ] && INSTALL=1
 
 if ! command -v swift >/dev/null 2>&1; then
   echo "package: swift not found (xcode-select --install)" >&2
   exit 127
 fi
 
-echo "package: building universal binary (arm64 + x86_64)…"
+echo "package: building universal binaries (arm64 + x86_64)…"
 swift build -c release --arch arm64 --product maccalbar
 swift build -c release --arch x86_64 --product maccalbar
+swift build -c release --arch arm64 --product maccal
+swift build -c release --arch x86_64 --product maccal
 ARM=".build/arm64-apple-macosx/release/maccalbar"
 X86=".build/x86_64-apple-macosx/release/maccalbar"
+ARM_CLI=".build/arm64-apple-macosx/release/maccal"
+X86_CLI=".build/x86_64-apple-macosx/release/maccal"
 
 DIST="dist"
 APP="${DIST}/maccal.app"
@@ -42,6 +48,9 @@ mkdir -p "$MACOS_DIR"
 
 echo "package: lipo → universal"
 lipo -create -output "${MACOS_DIR}/maccalbar" "$ARM" "$X86"
+# Bundle the CLI too, so the app is self-contained (background sync shells out
+# to this copy — see resolveMaccalPath — rather than a separate brew install).
+lipo -create -output "${MACOS_DIR}/maccal" "$ARM_CLI" "$X86_CLI"
 
 # A menu-bar app needs a real bundle Info.plist (LSUIElement hides the Dock icon
 # and the app row; the usage keys drive the Calendar prompt).
@@ -66,7 +75,17 @@ cat > "${APP}/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-echo "package: codesigning ($IDENTIFIER)…"
+echo "package: codesigning bundled CLI + app…"
+# Sign the nested CLI FIRST (nested code must be signed before its container),
+# and with the APP's identifier so TCC treats it as the same entity — the CLI
+# then shares the app's Calendar grant instead of prompting, which it cannot do
+# as a background launchd job. A distinct identifier here leaves it at TCC
+# auth_value 0 and EventKit hangs waiting for a prompt that never appears.
+codesign --sign - \
+  --identifier "$IDENTIFIER" \
+  --entitlements "${SCRIPT_DIR}/maccal.entitlements" \
+  --force --options runtime \
+  "${MACOS_DIR}/maccal"
 codesign --sign - \
   --identifier "$IDENTIFIER" \
   --entitlements "${SCRIPT_DIR}/maccal.entitlements" \
@@ -82,7 +101,17 @@ echo "package: artifact → ${ZIP}"
 echo "package: archs    → $(lipo -archs "${MACOS_DIR}/maccalbar")"
 echo "package: sha256   → $(shasum -a 256 "$ZIP" | awk '{print $1}')"
 echo
-echo "Next:"
-echo "  1. Unzip and drag maccal.app to /Applications."
-echo "  2. Launch it — a calendar icon appears in the menu bar."
-echo "  3. Open Settings…, pick Sources + Target, then toggle 'Run in background'."
+if [ "$INSTALL" = "1" ]; then
+  echo "package: installing to /Applications…"
+  osascript -e 'tell application "maccal" to quit' 2>/dev/null || true
+  pkill -x maccalbar 2>/dev/null || true
+  rm -rf /Applications/maccal.app
+  ditto "$APP" /Applications/maccal.app
+  open /Applications/maccal.app
+  echo "package: installed → /Applications/maccal.app (v${VERSION#v}) and relaunched."
+else
+  echo "Next:"
+  echo "  • Install + relaunch locally:  ./package.sh --install"
+  echo "  • Or unzip ${ZIP} and drag maccal.app to /Applications."
+  echo "  • Then open Settings…, pick Sources + Target — background sync starts automatically."
+fi

@@ -29,7 +29,8 @@ $ maccal agenda --calendar Work
 - [Quick start](#quick-start) — copy-paste cheat sheet
 - [Commands](#commands)
   - Read: [`calendars`](#calendars) · [`agenda`](#agenda) · [`show`](#show) · [`search`](#search)
-  - Write: [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`auth`](#auth)
+  - Write: [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`sync`](#sync) · [`auth`](#auth)
+- [Menu-bar sync app](#menu-bar-sync-app-maccalapp) — scheduled background sync
 - [Dates & durations](#dates--durations) · [Scripting with JSON](#scripting-with-json) · [Shell completion](#shell-completion)
 - [How it works](#how-it-works) · [Troubleshooting](#troubleshooting) · [Development](#development)
 
@@ -46,6 +47,9 @@ $ brew install ikhoon/tap/maccal
 Installs the universal (Apple Silicon + Intel) `maccal.app`, puts `maccal` on your
 `PATH`, and sets up shell completions. No Gatekeeper prompt — brew doesn't
 quarantine the download. Then authorize Calendar access once: `maccal auth`.
+
+> Want scheduled background sync too? Also install the
+> [menu-bar app](#menu-bar-sync-app-maccalapp).
 
 ### Download from Releases
 
@@ -151,6 +155,7 @@ maccal auth                               # grant maccal its own Calendar access
 |---|---|---|
 | **Read** | `calendars` `agenda` `show` `search` | no side effects |
 | **Write** | `add` `edit` `rm` | confirm by default; `--dry-run` / `--yes` |
+| **Sync** | `sync` | one-way mirror into a target; idempotent |
 | **Setup** | `auth` | grant Calendar access once |
 
 Conventions: every command takes `--json` (NDJSON, for `jq`); `--calendar`
@@ -353,17 +358,19 @@ would sync: Team → Mirror   +3 new  ~0 changed  -0 removed
 maccal sync --from A --to B --yes                        # title + time + location
 maccal sync --from A --from "Team Events" --to B --yes   # several sources → one target
 maccal sync --from A --to B --notes --yes                # also copy the body
-maccal sync --from A --to B --busy --yes                 # opaque "Busy", hide details
+maccal sync --from A --to B --no-location --yes          # omit the location
 maccal sync --from A --to B --until +14d --yes           # only the next 2 weeks
 maccal sync --from A --to B --no-delete --yes            # never delete from target
 ```
 
-Default window is today … +30d. Detail is **title + time + location** by default;
-`--notes` adds the body, `--busy` copies only opaque "Busy" blocks. Automate it
-with a `launchd`/`cron` job running `maccal sync … --yes`.
+Default window is today … +30d (override with `--since`/`--until`). Each copy
+carries **title + time + location**; `--notes` also copies the body and
+`--no-location` drops the location. Automate it with a `launchd`/`cron` job
+running `maccal sync … --yes` — or let the [menu-bar app](#menu-bar-sync-app-maccalapp)
+schedule it for you.
 
-Flags: `--from` (repeatable), `--to`, `--since`/`--until`, `--notes`, `--busy`,
-`--no-delete`, `--json`, `--dry-run`, `--yes`.
+Flags: `--from` (repeatable), `--to`, `--since`/`--until`, `--notes`,
+`--no-location`, `--no-delete`, `--json`, `--dry-run`, `--yes`.
 
 ---
 
@@ -375,6 +382,58 @@ Grant maccal its own Calendar access (run once, interactively). See
 ```console
 $ maccal auth        # a "maccal" dialog appears → click Allow
 ```
+
+---
+
+## Menu-bar sync app (maccal.app)
+
+`maccal sync` shines in a `launchd`/`cron` job — but if you'd rather not hand-write
+one, **maccal.app** is a tiny menu-bar companion that runs the sync for you on a
+schedule and keeps it going in the background.
+
+- **Pick sources + a target** in Settings — checkbox multi-select for source
+  calendars, one target, an interval, and what detail to copy (title is always
+  included; location and notes are toggles).
+- **Automatic background sync** — once sources and a target are set, a `launchd`
+  job runs `maccal sync … --yes` on your interval. There's no "run in background"
+  switch to remember; it just works, and the menu shows the **last-synced** time.
+- **Keep awake for sync** — an optional toggle that prevents *idle* sleep so a
+  scheduled sync still fires while the Mac sits idle. (Closing the lid still
+  sleeps — a macOS limitation.)
+- **Start at login** toggle, right in the menu.
+- **Self-contained** — the app bundles the `maccal` CLI, so background sync works
+  **without** a separate `brew install maccal`; the bundled CLI shares the app's
+  Calendar grant.
+
+### Install the app
+
+**Homebrew cask** (recommended — updates with `brew upgrade`):
+
+```console
+$ brew install --cask ikhoon/tap/maccal-menubar
+```
+
+**From source** — build a universal `maccal.app`, install to `/Applications`, launch:
+
+```console
+$ ./package.sh --install
+```
+
+Or download `maccal-menubar-<version>-macos-universal.zip` from **Releases**, unzip,
+and drag `maccal.app` to `/Applications`.
+
+### Calendar access for the app
+
+The app holds its **own** Calendar grant, separate from the CLI's: it appears as its
+own row (bundle id `kr.ikhoon.maccalbar`) under *System Settings → Privacy & Security
+→ Calendars*, distinct from the CLI's `kr.ikhoon.maccal`. Launch the app once and
+click **Allow** when prompted. The bundled CLI runs under the app's bundle, so it
+shares this grant — background sync needs no separate prompt.
+
+> **Two grants, on purpose.** The CLI (`maccal`, from your terminal) and the app
+> (`maccal.app`, background sync) each carry their own Calendar permission, so
+> revoking one leaves the other intact. Reset either with
+> `tccutil reset Calendar kr.ikhoon.maccal` / `tccutil reset Calendar kr.ikhoon.maccalbar`.
 
 ---
 
@@ -475,7 +534,7 @@ maccal <subcommand>
 
 ```console
 $ swift build              # build
-$ swift run maccalCheck    # run the test suite (290 checks, no Calendar access needed)
+$ swift run maccalCheck    # run the pure test suite (no Calendar access needed)
 ```
 
 `maccalCheck` is a dependency-free harness (XCTest/swift-testing aren't needed),
