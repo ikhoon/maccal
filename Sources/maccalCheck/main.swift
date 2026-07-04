@@ -1094,6 +1094,17 @@ do {
 }
 
 do {
+    // Empty-id source events are skipped: their marker's srcId would be empty and
+    // parseSyncMarker can't read it back, so the copy would be unmanaged
+    // (re-created every run). Only id-bearing events mirror.
+    let s = syncStore([srcEvent("", "Ghost", 1), srcEvent("E1", "Real", 2)])
+    _ = try! syncRun(s)
+    let copies = syncedCopies(s)
+    c.eq(copies.count, 1, "sync skips the empty-id source event")
+    c.eq(copies.first?.title, "Real", "only the id-bearing source event is mirrored")
+}
+
+do {
     // idempotent: a re-sync with no source change writes nothing, no duplicates.
     let s = syncStore([srcEvent("W1", "Standup", 1)])
     _ = try! syncRun(s)
