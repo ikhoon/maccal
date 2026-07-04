@@ -1409,6 +1409,31 @@ do {
     c.expect(!s.seriesOccurrences(id: copyId, in: win).contains(w2), "cancellation still applied after the update")
 }
 
+// MARK: SyncStatus (shared last-sync record file)
+
+do {
+    let tmp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("maccal-synctest-\(UUID().uuidString)/last-sync")
+    defer { try? FileManager.default.removeItem(at: tmp.deletingLastPathComponent()) }
+
+    c.expect(SyncStatus.last(from: tmp) == nil, "SyncStatus: no file -> nil")
+
+    SyncStatus.record(at: Date(timeIntervalSince1970: 1_700_000_000), summary: "synced: +3 ~2 -0", to: tmp)
+    let r = SyncStatus.last(from: tmp)
+    c.eq(r?.summary, "synced: +3 ~2 -0", "SyncStatus: round-trips the summary")
+    c.expect(r.map { abs($0.date.timeIntervalSince1970 - 1_700_000_000) < 1 } ?? false,
+             "SyncStatus: round-trips the timestamp")
+
+    SyncStatus.record(at: Date(timeIntervalSince1970: 1_700_000_050), summary: "a\nb", to: tmp)
+    c.eq(SyncStatus.last(from: tmp)?.summary, "a\nb", "SyncStatus: summary keeps embedded newlines")
+
+    try? "not-a-number\nx".write(to: tmp, atomically: true, encoding: .utf8)
+    c.expect(SyncStatus.last(from: tmp) == nil, "SyncStatus: unparsable timestamp -> nil")
+
+    try? "".write(to: tmp, atomically: true, encoding: .utf8)
+    c.expect(SyncStatus.last(from: tmp) == nil, "SyncStatus: empty file -> nil")
+}
+
 // MARK: SyncAgent (menu-bar app's launchd job spec)
 
 do {

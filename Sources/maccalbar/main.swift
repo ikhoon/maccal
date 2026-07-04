@@ -178,6 +178,13 @@ enum KeepAwake {
 /// Mimics a native checkmark menu item — leading SF Symbol, title, trailing
 /// checkmark, and the blue hover highlight — but does NOT dismiss the menu on
 /// click, so several toggles can be flipped in a row.
+///
+/// Trade-off (intentional; raised in Copilot review on PR #8): being a custom,
+/// mouse-driven view instead of a real NSMenuItem, it does NOT support keyboard
+/// navigation (arrow keys / Return). On macOS, "clicking keeps the menu open"
+/// and full keyboard menu control are effectively mutually exclusive for a menu
+/// item, and we chose the former. VoiceOver is still served via the
+/// accessibility role/label/value set in init().
 @MainActor
 final class MenuToggleView: NSView {
     private let iconView = NSImageView()
