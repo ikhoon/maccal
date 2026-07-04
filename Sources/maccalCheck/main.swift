@@ -1669,6 +1669,39 @@ do {
              "show color:false plain")
 }
 
+// MARK: ICS export/import (iCalendar round-trip)
+
+do {
+    let start = kstCal.date(from: DateComponents(year: 2026, month: 6, day: 23, hour: 10, minute: 30))!
+    let e = EventInfo.fixture(id: "E1", title: "Lunch; with, Sam", calendar: "Work", calendarId: "cal-work",
+                              start: start, end: start.addingTimeInterval(3600),
+                              location: "Room 4F", notes: "line1\nline2", url: "https://x.example/a")
+    let ics = ICS.export(e, now: kstNow, timeZone: kst)
+    c.expect(ics.contains("BEGIN:VEVENT") && ics.contains("END:VCALENDAR"), "export wraps a VEVENT in a VCALENDAR")
+    c.expect(ics.contains("SUMMARY:Lunch\\; with\\, Sam"), "export escapes ; and ,")
+    let back = ICS.parse(ics, timeZone: kst)
+    c.eq(back.count, 1, "one VEVENT → one draft")
+    c.eq(back.first?.title, "Lunch; with, Sam", "title round-trips (unescaped)")
+    c.expect(back.first.map { abs($0.start.timeIntervalSince(start)) < 1 } ?? false, "start round-trips via UTC")
+    c.eq(back.first?.location, "Room 4F", "location round-trips")
+    c.eq(back.first?.notes, "line1\nline2", "notes round-trip incl. newline")
+    c.eq(back.first?.url, "https://x.example/a", "url round-trips")
+
+    // all-day round-trips as VALUE=DATE (local day)
+    let day = kstCal.date(from: DateComponents(year: 2026, month: 7, day: 1))!
+    let ad = EventInfo.fixture(id: "A", title: "PTO", start: day, end: kstCal.date(byAdding: .day, value: 1, to: day)!, allDay: true)
+    let adIcs = ICS.export(ad, now: kstNow, timeZone: kst)
+    c.expect(adIcs.contains("DTSTART;VALUE=DATE:20260701"), "all-day exports as VALUE=DATE")
+    c.expect(ICS.parse(adIcs, timeZone: kst).first?.allDay == true, "all-day round-trips")
+
+    // runImport creates the parsed drafts; empty input → error
+    let s = syncStore([])
+    c.expect(try! runImport(store: s, drafts: back, calendar: "Personal", dryRun: false, confirm: AutoYes(), timeZone: kst).performed,
+             "import creates the parsed events")
+    c.eq(caught { _ = try runImport(store: s, drafts: [], calendar: nil, dryRun: false, confirm: AutoYes(), timeZone: kst) } as? WriteValidationError,
+         .noEventsToImport, "empty import → noEventsToImport")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

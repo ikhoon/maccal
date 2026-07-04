@@ -91,7 +91,8 @@ struct Maccal: ParsableCommand {
         version: AppVersion.current,
         subcommands: [
             CalendarsCommand.self, AgendaCommand.self, ShowCommand.self, SearchCommand.self,
-            AddCommand.self, EditCommand.self, RmCommand.self, SyncCommand.self, AuthCommand.self,
+            AddCommand.self, EditCommand.self, RmCommand.self, SyncCommand.self,
+            ExportCommand.self, ImportCommand.self, AuthCommand.self,
             CompletionsCommand.self,
         ]
     )
@@ -680,6 +681,87 @@ struct AuthCommand: ParsableCommand {
                 "then approve, and check System Settings → Privacy & Security → Calendars (maccal).\n"
             ).utf8))
             throw ExitCode(2)
+        }
+    }
+}
+
+struct ExportCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "export",
+        abstract: "Export an event as iCalendar (.ics) to stdout.",
+        discussion: """
+        Examples:
+          $ maccal export <id> > event.ics
+          $ maccal export <id> | pbcopy
+
+        The id comes from agenda/search/show. Timed events export in UTC; all-day
+        events as VALUE=DATE.
+        """
+    )
+
+    @Argument(help: "Event id from agenda/search/show output.")
+    var id: String
+
+    func run() throws {
+        let store = EKEventStore()
+        CalendarAccess.require(store: store)
+        guard let ev = EKCalendarStore(store: store).event(id: id) else {
+            FileHandle.standardError.write(Data("maccal: event \(id) not found\n".utf8))
+            throw ExitCode(1)
+        }
+        print(ICS.export(ev, now: Date(), timeZone: .current), terminator: "")
+    }
+}
+
+struct ImportCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "import",
+        abstract: "Create events from an iCalendar (.ics) file.",
+        discussion: """
+        Examples:
+          $ maccal import invite.ics --calendar Work --dry-run
+          $ maccal import invite.ics --calendar Work --yes
+          $ cat invite.ics | maccal import - --yes
+
+        Reads VEVENTs (summary/start/end/location/description/url) and creates them
+        in --calendar (or the default). Confirms once for the whole batch.
+        """
+    )
+
+    @Argument(help: "Path to a .ics file, or - for stdin.")
+    var file: String
+
+    @Option(name: .long, help: "Calendar to import into (title or identifier); the default new-event calendar otherwise.")
+    var calendar: String?
+
+    @Flag(name: .long, help: "Show what would be imported; create nothing.")
+    var dryRun = false
+
+    @Flag(name: [.long, .customShort("y")], help: "Skip the confirmation prompt (required on a non-TTY).")
+    var yes = false
+
+    func run() throws {
+        let text: String
+        if file == "-" {
+            text = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        } else {
+            guard let s = try? String(contentsOfFile: file, encoding: .utf8) else {
+                FileHandle.standardError.write(Data("maccal: cannot read \(file)\n".utf8))
+                throw ExitCode(1)
+            }
+            text = s
+        }
+        let drafts = ICS.parse(text, timeZone: .current)
+        let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "import")
+        let store = EKEventStore()
+        CalendarAccess.require(store: store, needsWrite: !dryRun)
+        do {
+            let result = try runImport(store: EKCalendarStore(store: store), drafts: drafts,
+                                       calendar: calendar, dryRun: dryRun, confirm: confirmer, timeZone: .current)
+            try emit(result)
+        } catch let e as MaccalError {
+            FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
+            throw ExitCode(1)
         }
     }
 }
