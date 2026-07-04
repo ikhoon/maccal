@@ -1,9 +1,13 @@
-// make-icon.swift — draws the maccal app icon: a gradient squircle carrying the
-// menu-bar identity (a sync ring around a mini calendar) in white, so the app
-// icon and the tray glyph are the same mark. Usage: swift make-icon.swift <dir>
+// make-icon.swift — maccal app icon in the mac* family style: a dark terminal
+// window (traffic-light dots top-left) with a big white glyph, like macmail's @.
+// Here the glyph is a calendar. Usage: swift make-icon.swift <out.iconset-dir>
 import AppKit
 
-/// An SF Symbol filled solid white (so it reads on the gradient).
+func c(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> NSColor {
+    NSColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: 1)
+}
+
+/// An SF Symbol filled solid white.
 func whiteSymbol(_ name: String, pointSize: CGFloat, weight: NSFont.Weight) -> NSImage? {
     let cfg = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
     guard let sym = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
@@ -28,39 +32,30 @@ func drawIcon(_ px: CGFloat) -> NSBitmapImageRep {
 
     let full = NSRect(x: 0, y: 0, width: px, height: px)
     let body = full.insetBy(dx: px * 0.085, dy: px * 0.085)
-    let corner = body.width * 0.2237                 // macOS-style rounded square
+    let corner = body.width * 0.2237
     let path = NSBezierPath(roundedRect: body, xRadius: corner, yRadius: corner)
 
+    // dark "terminal window" gradient (top lighter → bottom near-black)
     NSGraphicsContext.current?.saveGraphicsState()
     path.addClip()
-    NSGradient(colors: [
-        NSColor(srgbRed: 0.13, green: 0.55, blue: 1.00, alpha: 1),   // sky blue
-        NSColor(srgbRed: 0.10, green: 0.80, blue: 0.72, alpha: 1),   // teal
-    ])!.draw(in: body, angle: -55)
+    NSGradient(colors: [c(60, 60, 63), c(22, 22, 24)])!.draw(in: body, angle: -90)
     NSGraphicsContext.current?.restoreGraphicsState()
 
-    // sync ring (circular arrows), white, large — the menu-bar identity.
-    if let ring = whiteSymbol("arrow.triangle.2.circlepath", pointSize: px * 0.56, weight: .light) {
-        let g = ring.size
-        ring.draw(in: NSRect(x: (px - g.width) / 2, y: (px - g.height) / 2, width: g.width, height: g.height))
+    // traffic-light dots, top-left (window controls)
+    let r = px * 0.026
+    let dy = body.maxY - px * 0.105
+    let x0 = body.minX + px * 0.105
+    let gap = px * 0.082
+    for (i, col) in [c(255, 95, 87), c(254, 188, 46), c(40, 200, 64)].enumerated() {
+        col.setFill()
+        NSBezierPath(ovalIn: NSRect(x: x0 + CGFloat(i) * gap - r, y: dy - r, width: r * 2, height: r * 2)).fill()
     }
-    // mini calendar (square + header bar + 2x2 day dots), white, centred in the ring.
-    if let sq = whiteSymbol("square", pointSize: px * 0.24, weight: .regular) {
-        let g = sq.size
-        let ox = (px - g.width) / 2, oy = (px - g.height) / 2
-        sq.draw(in: NSRect(x: ox, y: oy, width: g.width, height: g.height))
-        NSColor.white.setFill()
-        let barH = px * 0.020                          // thicken the top edge (header hint)
-        NSBezierPath(rect: NSRect(x: ox + g.width * 0.14, y: oy + g.height - barH - px * 0.012,
-                                  width: g.width * 0.72, height: barH)).fill()
-        let dot = px * 0.024                            // 2x2 day marks
-        let cx = ox + g.width / 2, cy = oy + g.height / 2 - px * 0.006
-        let gap = px * 0.058
-        for dx in [-gap / 2, gap / 2] {
-            for dy in [-gap / 2, gap / 2] {
-                NSBezierPath(ovalIn: NSRect(x: cx + dx - dot / 2, y: cy + dy - dot / 2, width: dot, height: dot)).fill()
-            }
-        }
+
+    // big white calendar glyph, centred (nudged down a touch for the title bar)
+    if let cal = whiteSymbol("calendar", pointSize: px * 0.5, weight: .semibold) {
+        let g = cal.size
+        cal.draw(in: NSRect(x: (px - g.width) / 2, y: (px - g.height) / 2 - px * 0.03,
+                            width: g.width, height: g.height))
     }
     NSGraphicsContext.restoreGraphicsState()
     return rep
