@@ -745,6 +745,30 @@ do {
 }
 
 do {
+    // Keep-duration is DST-safe: moving --start re-adds the wall-clock span in
+    // calendar components, not a raw second delta. A 2-day event spanning the
+    // spring-forward night (2026-03-08 in America/Los_Angeles, so 47h elapsed)
+    // moved to a normal week must stay 2 wall-clock days (end at 12:00), not
+    // land at 11:00 from a raw 47h delta.
+    let la = TimeZone(identifier: "America/Los_Angeles")!
+    var laCal = Calendar(identifier: .gregorian); laCal.timeZone = la
+    let work = CalendarInfo.fixture(title: "Work", calendarIdentifier: "cal-work")
+    let s = FakeCalendarStore(calendars: [work], defaultCalendar: work)
+    s.eventList = [EventInfo.fixture(
+        id: "E1", title: "Trip", calendar: "Work", calendarId: "cal-work",
+        start: laCal.date(from: DateComponents(year: 2026, month: 3, day: 7, hour: 12))!,
+        end: laCal.date(from: DateComponents(year: 2026, month: 3, day: 9, hour: 12))!,
+        timeZone: "America/Los_Angeles"
+    )]
+    let now = laCal.date(from: DateComponents(year: 2026, month: 3, day: 1))!
+    _ = try! runEdit(store: s, id: "E1", title: nil, start: "2026-03-15T12:00", end: nil, duration: nil,
+                     tz: nil, location: nil, notes: nil, url: nil, availability: nil,
+                     allOccurrences: false, json: false, dryRun: false, confirm: AutoYes(), now: now, timeZone: la)
+    c.eq(s.event(id: "E1")?.end, laCal.date(from: DateComponents(year: 2026, month: 3, day: 17, hour: 12))!,
+         "edit keep-duration preserves wall-clock span across DST (end 12:00, not 11:00)")
+}
+
+do {
     let s = editStore()
     c.eq(caught { _ = try edit(s, end: "2026-06-20T12:00", duration: "1h") } as? WriteValidationError, .endAndDurationConflict, "--end + --duration → conflict")
     c.eq(caught { _ = try edit(s) } as? WriteValidationError, .noChanges, "no field flags → noChanges")
