@@ -300,7 +300,7 @@ struct AgendaCommand: ParsableCommand {
                 color: resolveColor(config, noColor: noColor, json: json),
                 aligned: useTable(json: json),
                 dateStyle: resolveDateStyle(config, iso: iso),
-                long: long,
+                long: long || !useTable(json: json),   // pipe/redirect → full id (script-safe), like dates
                 hideCancelled: hideCancelled,
                 hiddenCalendars: config.hiddenCalendars,
                 showAll: all,
@@ -436,7 +436,7 @@ struct SearchCommand: ParsableCommand {
                 color: resolveColor(config, noColor: noColor, json: json),
                 aligned: useTable(json: json),
                 dateStyle: resolveDateStyle(config, iso: iso),
-                long: long,
+                long: long || !useTable(json: json),   // pipe/redirect → full id (script-safe), like dates
                 hideCancelled: hideCancelled,
                 hiddenCalendars: config.hiddenCalendars,
                 showAll: all,
