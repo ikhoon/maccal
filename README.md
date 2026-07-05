@@ -592,7 +592,7 @@ optional: a missing file just means built-in defaults. Precedence is **flag > en
 | `hiddenCalendars` | Calendars to hide by default from `calendars`, `agenda`, `search`, and `free`. Each entry matches a calendar **title or identifier** (case-insensitive). Reveal them with `--all`, or name one explicitly with `--calendar`. |
 | `defaultCalendar` | Target for `add` / `import` when `--calendar` is omitted. |
 | `color` | `auto` (color on a TTY only — the default), `always`, or `never`. `--no-color` and `NO_COLOR` still force it off. |
-| `dateFormat` | Human date style: `readable` (`2026-07-06 09:30`, the default), `iso` (`2026-07-06T09:30:00+09:00`), `friendly` (`Mon Jul 6 09:30`), or `compact` (`Jul 6 09:30`). **Piped and `--json` output always stay ISO/UTC** so scripts are unaffected; `--iso` forces ISO for one run. |
+| `dateFormat` | Human date style: `readable` (`2026-07-06 09:30`, the default), `iso` (`2026-07-06T09:30:00+09:00`), `friendly` (`Mon Jul 6 09:30`), `compact` (`Jul 6 09:30`) — or a **custom pattern** like `"MMM D HH:mm"`. Tokens: `YYYY` `YY` `MMMM` `MMM` `MM` `M` `DD` `D` `dddd` `ddd` `HH` `H` `hh` `h` `mm` `m` `ss` `s` `A` `a`; other characters are literals. **Piped and `--json` output always stay ISO/UTC** so scripts are unaffected; `--iso` forces ISO for one run. |
 | `agendaMax` / `searchMax` | Default row cap for `agenda` (built-in 30) / `search` (built-in 10) when `--max` is omitted. |
 
 > macOS/EventKit exposes no "calendar is hidden in Calendar.app" flag, so

@@ -2098,6 +2098,31 @@ do {
     c.expect(try! runAgenda(store: cals, json: false, long: true, now: kstNow, timeZone: kst).contains("EVENTIDLONG123"), "agenda --long shows the full id")
 }
 
+// MARK: - custom dateFormat patterns (config.dateFormat = "MMM D HH:mm" etc.)
+do {
+    var pc = Calendar(identifier: .gregorian); pc.timeZone = kst
+    let d = pc.date(from: DateComponents(year: 2026, month: 7, day: 6, hour: 9, minute: 30, second: 5))!
+    c.eq(Output.formatCustom(d, pattern: "MMM D HH:mm", timeZone: kst), "Jul 6 09:30", "custom MMM D HH:mm")
+    c.eq(Output.formatCustom(d, pattern: "YYYY-MM-DD", timeZone: kst), "2026-07-06", "custom YYYY-MM-DD")
+    c.eq(Output.formatCustom(d, pattern: "ddd D MMM YY h:mm a", timeZone: kst), "Mon 6 Jul 26 9:30 am", "custom weekday/12h/am")
+    c.eq(Output.formatCustom(d, pattern: "MMMM D, dddd", timeZone: kst), "July 6, Monday", "custom full month/weekday")
+    c.eq(Output.formatCustom(d, pattern: "HH:mm:ss", timeZone: kst), "09:30:05", "custom seconds")
+
+    // DateStyle resolution: named styles case-insensitive; token strings → custom;
+    // tokenless typos → readable fallback.
+    c.expect(Output.DateStyle("Compact") == .compact, "named style is case-insensitive")
+    c.expect(Output.DateStyle("MMM D HH:mm") == .custom("MMM D HH:mm"), "token string parses as custom")
+    c.expect(Output.DateStyle("불명") == .readable, "tokenless string falls back to readable")
+
+    // when() with a custom pattern: same-day end uses the time half; all-day the date half.
+    let ev = EventInfo.fixture(id: "c", calendar: "W", start: d, end: d.addingTimeInterval(5395))
+    c.eq(Output.when(ev, style: .custom("MMM D HH:mm"), timeZone: kst, now: d), "Jul 6 09:30–11:00", "custom same-day range")
+    let d0 = pc.startOfDay(for: d)
+    let ad = EventInfo.fixture(id: "a", calendar: "W", start: d0, end: pc.date(byAdding: .day, value: 1, to: d0)!, allDay: true)
+    c.eq(Output.when(ad, style: .custom("MMM D HH:mm"), timeZone: kst, now: d), "Jul 6 all-day", "custom all-day uses the date half + marker")
+    c.eq(Output.stripPatternTokens("MMM D HH:mm", dropping: ["HH", "H", "hh", "h", "mm", "m", "ss", "s", "A", "a"]), "MMM D", "time half stripped cleanly")
+}
+
 // MARK: - when ranges (end time + all-day marker in human styles; ISO stays start-only)
 do {
     var wc = Calendar(identifier: .gregorian); wc.timeZone = kst

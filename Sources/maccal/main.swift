@@ -179,12 +179,13 @@ func resolveOrExit(_ id: String, store: CalendarStore) throws -> String {
 
 /// Human date style for text output. `--iso` forces ISO; a pipe/redirect also
 /// stays ISO (machine contract for `cut`/`awk`); an interactive TTY uses the
-/// config's dateFormat ("readable" by default). `--json` dates are separate
+/// config's dateFormat — a named style (iso/readable/friendly/compact) or a
+/// day.js-style custom pattern like "MMM D HH:mm". `--json` dates are separate
 /// (always UTC ISO via the encoder), so this doesn't touch them.
 func resolveDateStyle(_ config: Config, iso: Bool) -> Output.DateStyle {
     if iso { return .iso }
     if isatty(fileno(stdout)) != 1 { return .iso }
-    return Output.DateStyle(rawValue: (config.dateFormat ?? "readable").lowercased()) ?? .readable
+    return Output.DateStyle(config.dateFormat ?? "readable")
 }
 
 struct CalendarsCommand: ParsableCommand {

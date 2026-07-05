@@ -197,7 +197,12 @@ public enum Output {
         let start = formatInstant(event.start, style: style, now: now, timeZone: tz)
         guard event.end > event.start else { return start }
         if cal.isDate(event.start, inSameDayAs: event.end) {
-            return "\(start)–\(hhmm(event.end, tz))"  // same day: end as a bare clock
+            // Same day: end as a bare clock — for a custom pattern, its time half.
+            if case .custom(let p) = style {
+                let tp = stripPatternTokens(p, dropping: dateTokens)
+                return tp.isEmpty ? start : "\(start)–\(formatCustom(event.end, pattern: tp, timeZone: tz))"
+            }
+            return "\(start)–\(hhmm(event.end, tz))"
         }
         return "\(start)–\(formatInstant(event.end, style: style, now: now, timeZone: tz))"
     }
@@ -208,10 +213,112 @@ public enum Output {
     ///   readable → 2026-07-06 09:30            (default: date + HH:MM, no seconds/offset)
     ///   friendly → Mon Jul 6 09:30             (weekday + month name)
     ///   compact  → Jul 6 09:30                 (month name + day; year added when not `now`'s year)
-    public enum DateStyle: String, Sendable, CaseIterable { case iso, readable, friendly, compact }
+    ///   custom   → any day.js-style pattern from config.dateFormat, e.g. "MMM D HH:mm"
+    public enum DateStyle: Sendable, Equatable {
+        case iso, readable, friendly, compact
+        case custom(String)
+
+        /// Parse a config.dateFormat value: a named style (case-insensitive), or
+        /// any other string treated as a custom pattern when it contains at least
+        /// one format token; otherwise fall back to `readable`.
+        public init(_ s: String) {
+            switch s.lowercased() {
+            case "iso": self = .iso
+            case "readable", "": self = .readable
+            case "friendly": self = .friendly
+            case "compact": self = .compact
+            default: self = Output.patternHasToken(s) ? .custom(s) : .readable
+            }
+        }
+    }
+
+    /// Custom-pattern tokens (day.js subset), longest-first per letter so the
+    /// scanner matches greedily. Case-sensitive: `MM` = month, `mm` = minute.
+    private static let patternTokens = [
+        "YYYY", "YY", "MMMM", "MMM", "MM", "M", "DD", "D", "dddd", "ddd",
+        "HH", "H", "hh", "h", "mm", "m", "ss", "s", "A", "a",
+    ]
+    private static let dateTokens = ["YYYY", "YY", "MMMM", "MMM", "MM", "M", "DD", "D", "dddd", "ddd"]
+    private static let timeTokens = ["HH", "H", "hh", "h", "mm", "m", "ss", "s", "A", "a"]
+
+    public static func patternHasToken(_ p: String) -> Bool {
+        var i = p.startIndex
+        while i < p.endIndex {
+            if patternTokens.contains(where: { p[i...].hasPrefix($0) }) { return true }
+            i = p.index(after: i)
+        }
+        return false
+    }
+
+    /// Render `d` with a day.js-style pattern. Unknown characters pass through
+    /// as literals (no escaping — keep patterns to tokens and separators).
+    public static func formatCustom(_ d: Date, pattern: String, timeZone tz: TimeZone) -> String {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = tz
+        let c = cal.dateComponents([.year, .month, .day, .hour, .minute, .second, .weekday], from: d)
+        let h24 = c.hour ?? 0
+        let h12 = h24 % 12 == 0 ? 12 : h24 % 12
+        func val(_ tok: String) -> String {
+            switch tok {
+            case "YYYY": return String(format: "%04d", c.year ?? 0)
+            case "YY": return String(format: "%02d", (c.year ?? 0) % 100)
+            case "MMMM": return monthFull[c.month ?? 0]
+            case "MMM": return monthAbbr[c.month ?? 0]
+            case "MM": return String(format: "%02d", c.month ?? 0)
+            case "M": return String(c.month ?? 0)
+            case "DD": return String(format: "%02d", c.day ?? 0)
+            case "D": return String(c.day ?? 0)
+            case "dddd": return weekdayFull[c.weekday ?? 0]
+            case "ddd": return weekdayAbbr[c.weekday ?? 0]
+            case "HH": return String(format: "%02d", h24)
+            case "H": return String(h24)
+            case "hh": return String(format: "%02d", h12)
+            case "h": return String(h12)
+            case "mm": return String(format: "%02d", c.minute ?? 0)
+            case "m": return String(c.minute ?? 0)
+            case "ss": return String(format: "%02d", c.second ?? 0)
+            case "s": return String(c.second ?? 0)
+            case "A": return h24 < 12 ? "AM" : "PM"
+            default: return h24 < 12 ? "am" : "pm"     // "a"
+            }
+        }
+        var out = ""
+        var i = pattern.startIndex
+        while i < pattern.endIndex {
+            if let tok = patternTokens.first(where: { pattern[i...].hasPrefix($0) }) {
+                out += val(tok)
+                i = pattern.index(i, offsetBy: tok.count)
+            } else {
+                out.append(pattern[i])
+                i = pattern.index(after: i)
+            }
+        }
+        return out
+    }
+
+    /// The pattern with the given tokens removed and dangling separators tidied —
+    /// derives the date-only / time-only halves of a custom pattern (for all-day
+    /// rendering and same-day end clocks).
+    public static func stripPatternTokens(_ pattern: String, dropping drop: [String]) -> String {
+        var out = ""
+        var i = pattern.startIndex
+        while i < pattern.endIndex {
+            if let tok = patternTokens.first(where: { pattern[i...].hasPrefix($0) }) {
+                if !drop.contains(tok) { out += tok }
+                i = pattern.index(i, offsetBy: tok.count)
+            } else {
+                out.append(pattern[i])
+                i = pattern.index(after: i)
+            }
+        }
+        while out.contains("  ") { out = out.replacingOccurrences(of: "  ", with: " ") }
+        return out.trimmingCharacters(in: CharacterSet(charactersIn: " :,-./"))
+    }
 
     private static let monthAbbr = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    private static let monthFull = ["", "January", "February", "March", "April", "May", "June",
+                                    "July", "August", "September", "October", "November", "December"]
     private static let weekdayAbbr = ["", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    private static let weekdayFull = ["", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
     /// A timed instant in the given style. `now` only affects `compact`'s year.
     public static func formatInstant(_ d: Date, style: DateStyle, now: Date = Date(), timeZone tz: TimeZone = .current) -> String {
@@ -220,6 +327,7 @@ public enum Output {
         case .readable: return "\(localDate(d, timeZone: tz)) \(hhmm(d, tz))"
         case .friendly: return "\(weekdayName(d, tz)) \(monthDay(d, tz, now: now)) \(hhmm(d, tz))"
         case .compact: return "\(monthDay(d, tz, now: now)) \(hhmm(d, tz))"
+        case .custom(let p): return formatCustom(d, pattern: p, timeZone: tz)
         }
     }
 
@@ -229,6 +337,11 @@ public enum Output {
         case .iso, .readable: return localDate(d, timeZone: tz)          // 2026-07-06
         case .friendly: return "\(weekdayName(d, tz)) \(monthDay(d, tz, now: now))"
         case .compact: return monthDay(d, tz, now: now)
+        case .custom(let p):
+            // The pattern's date half (time tokens stripped); a time-only pattern
+            // falls back to the plain date so an all-day row still shows one.
+            let dp = stripPatternTokens(p, dropping: timeTokens)
+            return dp.isEmpty ? localDate(d, timeZone: tz) : formatCustom(d, pattern: dp, timeZone: tz)
         }
     }
 
