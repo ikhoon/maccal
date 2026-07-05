@@ -201,6 +201,10 @@ would sync: Work → Mirror   +3 new  ~0 changed  -0 removed  ✂0 cancelled
   re-runs add, update, and remove *exactly maccal's own copies* — everything else
   in the target is never a candidate, not on the first run, not on the
   thousandth. And one-way means one-way: nothing ever flows back into the source.
+- **Shares the when, not the what.** By default a copy carries only the
+  **title, time, and location** — meeting notes and the attendee list are never
+  mirrored (opt in to the body with `--notes`; drop even the location with
+  `--no-location`). What's discussed in a work meeting stays in the work account.
 - **Recurring- and cancellation-aware.** A repeating source mirrors as one
   repeating event, not a copy per occurrence — and cancelled occurrences are
   cancelled in the mirror too (that's the `✂` in the tally).
