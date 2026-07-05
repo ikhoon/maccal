@@ -569,7 +569,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
 @MainActor
 final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    // Square (fixed-width) so swapping the icon between rest and syncing never
+    // resizes the item — a variable-length item re-measures per image and makes
+    // the whole menu bar shuffle on every Sync now.
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var lastResult: String?   // last manual-sync outcome, shown when present
     private var syncing = false
     private var settingsWC: SettingsWindowController?
@@ -723,7 +726,10 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // the in-progress state is visible at a glance. contentTintColor keeps
         // the image a template, so the tint reads on light and dark menu bars.
         if syncing {
-            b.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "syncing…")
+            // Same point size as the resting ring so the swap doesn't change the
+            // glyph's footprint (the item width is already fixed — squareLength).
+            b.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "syncing…")?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .light))
             b.contentTintColor = .systemBlue
             startSpin(b)
         } else {
