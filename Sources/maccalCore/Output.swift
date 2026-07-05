@@ -306,13 +306,15 @@ public enum Output {
     /// ANSI styles for human (TTY) output. Applied only when `enabled` — the CLI
     /// turns color on for a TTY and off for pipes, `--json`, `--no-color`, or a
     /// set `NO_COLOR` — so piped and JSON output stays plain.
+    /// The "Ink & Token" theme palette. Hierarchy is built from WEIGHT, not gray:
+    /// bold = the one primary element per view; default fg = all other text (so
+    /// bilingual names always render at full terminal contrast — no SGR dim, no
+    /// gray tier, ever); normal-intensity ANSI hues are rationed to semantics:
+    /// cyan = the copyable id token, green/yellow/red/magenta = states. Normal
+    /// (not bright-9x) codes so light terminal palettes keep contrast too.
     public enum Style: String {
         case reset = "\u{001B}[0m"
         case bold = "\u{001B}[1m"
-        case dim = "\u{001B}[2m"
-        /// Secondary text — a fixed mid-gray (256-color 245) instead of SGR-dim,
-        /// which many terminals render too faint/dark. Readable on dark and light.
-        case muted = "\u{001B}[38;5;245m"
         case red = "\u{001B}[31m"
         case green = "\u{001B}[32m"
         case yellow = "\u{001B}[33m"

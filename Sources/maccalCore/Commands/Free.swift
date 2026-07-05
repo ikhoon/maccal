@@ -59,12 +59,14 @@ public func runFree(
         return Output.ndjson(slots.map { Slot(start: $0.start, end: $0.end, minutes: Int($0.duration / 60)) })
     }
     // Empty output for no slots, matching agenda/search (Output.table([]) == "") so
-    // scripts can treat empty as "no rows". Times are cyan like agenda/search.
+    // scripts can treat empty as "no rows". Ink & Token: the free span is the
+    // primary element (bold); the duration is green — an earned accent, "this
+    // much open time", rhyming with rw=green and sync's +created.
     let rows = slots.map { s -> [String] in
         [
-            Output.formatInstant(s.start, style: dateStyle, now: now, timeZone: timeZone),
-            Output.formatInstant(s.end, style: dateStyle, now: now, timeZone: timeZone),
-            Output.paint("(\(durationText(s.duration)))", .muted, enabled: color),
+            Output.paint(Output.formatInstant(s.start, style: dateStyle, now: now, timeZone: timeZone), .bold, enabled: color),
+            Output.paint(Output.formatInstant(s.end, style: dateStyle, now: now, timeZone: timeZone), .bold, enabled: color),
+            Output.paint("(\(durationText(s.duration)))", .green, enabled: color),
         ]
     }
     return Output.table(rows, aligned: aligned)

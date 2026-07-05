@@ -316,7 +316,7 @@ public func runSync(
     let counts = Output.paint("+\(created) new", .green, enabled: color) + "  "
         + Output.paint("~\(updated) changed", .yellow, enabled: color) + "  "
         + Output.paint("-\(deleted) removed", .red, enabled: color) + "  "
-        + Output.paint("✂\(cancelled) cancelled", .muted, enabled: color)
+        + Output.paint("✂\(cancelled) cancelled", .magenta, enabled: color)
     return .wrote("synced: \(label)   \(counts)\n")
 }
 

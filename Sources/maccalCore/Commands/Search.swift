@@ -79,15 +79,15 @@ public func runSearch(
     }
     let multiCalendar = Set(shown.map(\.calendar)).count > 1
     let colorByCal = color ? Dictionary(store.calendars().map { ($0.calendarIdentifier, $0.color) }, uniquingKeysWith: { a, _ in a }) : [:]
-    // Columns: [●] · when · [calendar] · id — matching agenda. Short git-style id
-    // (full via --long / --json), un-dimmed so it stays legible/copyable.
+    // Columns: [●] · when · [calendar] · id — matching agenda's Ink & Token
+    // styling: bold title, default-fg when/calendar, cyan copyable id.
     let rows = shown.map { ev -> [String] in
         let when = Output.when(ev, style: dateStyle, timeZone: timeZone, now: now)
-        let title = Output.sanitize(ev.title)
+        let title = Output.paint(Output.sanitize(ev.title), .bold, enabled: color)
         let handle = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
-        let idStr = long ? handle : Output.shortId(handle)
+        let idStr = Output.paint(long ? handle : Output.shortId(handle), .cyan, enabled: color)
         var row = multiCalendar
-            ? [when, Output.paint(Output.sanitize(ev.calendar), .muted, enabled: color), title, idStr]
+            ? [when, Output.sanitize(ev.calendar), title, idStr]
             : [when, title, idStr]
         if color { row.insert(Output.colorDot(colorByCal[ev.calendarId] ?? ""), at: 0) }
         return row

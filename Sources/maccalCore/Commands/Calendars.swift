@@ -53,9 +53,9 @@ public func runCalendars(
             ? Output.paint("rw", .green, enabled: color)
             : Output.paint("ro", .yellow, enabled: color)
         var row = [
-            Output.sanitize(c.title),
-            Output.paint(Output.sanitize(c.source), .muted, enabled: color),
-            Output.paint(Output.sanitize(c.type), .muted, enabled: color),
+            Output.paint(Output.sanitize(c.title), .bold, enabled: color),  // the primary element
+            Output.sanitize(c.source),                                      // default fg — no gray tier
+            Output.sanitize(c.type),
             rw,
         ]
         if color { row.insert(Output.colorDot(c.color), at: 0) }

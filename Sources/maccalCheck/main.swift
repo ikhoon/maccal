@@ -1676,6 +1676,11 @@ do {
     // the dot appears only in color and the data (short id) matches in both.
     c.expect(Output.stripANSI(aColor).contains("●") && !aPlain.contains("●"), "leading dot appears only in color mode")
     c.expect(aPlain.contains(Output.shortId("C1")) && Output.stripANSI(aColor).contains(Output.shortId("C1")), "same short id in colored and plain")
+    // Ink & Token guarantees: bold title, cyan id, and never a dim/gray tier.
+    c.expect(aColor.contains("\u{001B}[1m"), "agenda color → bold title")
+    c.expect(aColor.contains("\u{001B}[36m\(Output.shortId("C1"))"), "agenda color → cyan id token")
+    c.expect(!aColor.contains("\u{001B}[2m") && !aColor.contains("38;5;245") && !aColor.contains("\u{001B}[90m"),
+             "agenda has no dim/gray tier")
     c.expect(!(try! runAgenda(store: store, json: true, color: true, now: kstNow, timeZone: kst)).contains("\u{001B}["),
              "agenda --json ignores color (NDJSON stays plain)")
 
@@ -1689,9 +1694,11 @@ do {
     c.expect(calColor.contains("38;2;0;255;0"), "calendars color → truecolor swatch from hex")
     c.expect(!runCalendars(store: cstore, json: false, color: false).contains("\u{001B}["), "calendars color:false plain")
 
-    // show: muted (mid-gray) labels — readable, not the too-dark SGR-dim.
+    // show: bold labels (Ink & Token — weight over gray, full contrast).
     let shColor = runShow(store: store, id: "C1", json: false, color: true, timeZone: kst).output
-    c.expect(shColor.contains("\u{001B}[38;5;245m"), "show color → muted labels")
+    c.expect(shColor.contains("\u{001B}[1m"), "show color → bold labels")
+    c.expect(!shColor.contains("\u{001B}[2m") && !shColor.contains("38;5;245") && !shColor.contains("\u{001B}[90m"),
+             "show has no dim/gray tier")
     c.expect(!runShow(store: store, id: "C1", json: false, color: false, timeZone: kst).output.contains("\u{001B}["),
              "show color:false plain")
 }

@@ -54,16 +54,18 @@ public func runAgenda(
     // Calendar colors for the leading marker dot (color mode only) — ties each
     // row visually to `calendars`, so the calendar's own color is the one accent.
     let colorByCal = color ? Dictionary(store.calendars().map { ($0.calendarIdentifier, $0.color) }, uniquingKeysWith: { a, _ in a }) : [:]
-    // Columns: [●] · when · [calendar] · id — the id is a short git-style code
-    // (full via --long / --json), un-dimmed so it stays legible and copyable.
+    // Columns: [●] · when · [calendar] · id. Ink & Token: bold title, default fg
+    // for when/calendar (full contrast, no gray tier), cyan for the id — the one
+    // text hue, marking the copyable token (git-style short code; --long/--json
+    // for the full id).
     let rows = shown.map { ev -> [String] in
-        let when = Output.when(ev, style: dateStyle, timeZone: timeZone, now: now)   // no cyan: the dot is the accent
-        let title = Output.sanitize(ev.title)
+        let when = Output.when(ev, style: dateStyle, timeZone: timeZone, now: now)
+        let title = Output.paint(Output.sanitize(ev.title), .bold, enabled: color)
         // Recurring rows carry an occurrence handle (id@epoch) so edit/rm target one.
         let handle = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
-        let idStr = long ? handle : Output.shortId(handle)
+        let idStr = Output.paint(long ? handle : Output.shortId(handle), .cyan, enabled: color)
         var row = multiCalendar
-            ? [when, Output.paint(Output.sanitize(ev.calendar), .muted, enabled: color), title, idStr]
+            ? [when, Output.sanitize(ev.calendar), title, idStr]
             : [when, title, idStr]
         if color { row.insert(Output.colorDot(colorByCal[ev.calendarId] ?? ""), at: 0) }
         return row
