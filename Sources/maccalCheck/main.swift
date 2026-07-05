@@ -1965,6 +1965,10 @@ do {
     c.eq(Output.htmlToPlain("<p>Hi</p>"), "Hi", "real <p> tag stripped")
     c.eq(Output.htmlToPlain("x <b>bold</b> y"), "x bold y", "real inline tag stripped")
     c.expect(Output.htmlToPlain("if x < y then<br>z").contains("if x < y then"), "text before a lone '<' survives a real <br>")
+    // HTML comments and declarations (common in Google/Exchange notes) are stripped.
+    let commented = Output.htmlToPlain("Meeting <!-- internal: cancel? --> at 3pm")
+    c.expect(!commented.contains("<!--") && !commented.contains("cancel"), "HTML comment (and its body) stripped")
+    c.eq(Output.htmlToPlain("<!DOCTYPE html><p>Body</p>"), "Body", "<!DOCTYPE …> declaration stripped")
 }
 
 do {

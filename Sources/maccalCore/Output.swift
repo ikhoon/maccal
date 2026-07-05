@@ -178,11 +178,13 @@ public enum Output {
         func sub(_ pattern: String, _ replacement: String) {
             t = t.replacingOccurrences(of: pattern, with: replacement, options: [.regularExpression, .caseInsensitive])
         }
+        sub("<!--[\\s\\S]*?-->", "")                     // HTML/conditional comments (before the <! strip)
+        sub("<![^>]*>", "")                              // <!DOCTYPE …> and other declarations
         sub("<li[^>]*>", "\n- ")                       // list item → bullet
         sub("<br\\s*/?>", "\n")                          // line break
         sub("</(p|div|ul|ol|li|tr|h[1-6])>", "\n")        // block close → newline
-        // Strip only real tags: '<' or '</' followed by a letter. A literal '<'
-        // in prose ("a < b", "5 < 10") isn't a tag, so its text is kept.
+        // Strip only real element tags: '<' or '</' followed by a letter. A literal
+        // '<' in prose ("a < b", "5 < 10") isn't a tag, so its text is kept.
         sub("</?[a-zA-Z][^>]*>", "")
         t = decodeEntities(t)
         sub("[ \\t]+\n", "\n")                            // trailing spaces per line

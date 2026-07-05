@@ -704,8 +704,9 @@ struct AuthCommand: ParsableCommand {
           $ maccal auth   # a "maccal" dialog appears → click Allow
 
         Grants maccal its own Calendar access, independent of your terminal — run
-        once in an interactive Terminal. Reset with:
-          $ tccutil reset Calendar kr.ikhoon.maccalbar
+        once in an interactive Terminal. Reset with your install's bundle id:
+          $ tccutil reset Calendar kr.ikhoon.maccal      # standalone CLI
+          $ tccutil reset Calendar kr.ikhoon.maccalbar   # bundled in the menu-bar app
         """
     )
 
