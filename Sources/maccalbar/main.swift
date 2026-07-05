@@ -588,6 +588,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func rebuild(_ menu: NSMenu) {
         menu.removeAllItems()
+        // About on top (macOS convention, matching macrec), then a divider.
+        add(menu, "About maccal", #selector(showAbout), symbol: "info.circle")
+        menu.addItem(.separator())
         if Settings.sources.isEmpty || Settings.target.isEmpty {
             addDisabled(menu, "Set sources + target in Settings")
         } else if syncing {
@@ -625,6 +628,21 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: actions
+
+    @objc private func showAbout() {
+        // Standard About panel (like macrec): app name + resolved version + a
+        // one-line credit. The bundle icon appears automatically.
+        NSApp.activate(ignoringOtherApps: true)
+        let para = NSMutableParagraphStyle(); para.alignment = .center
+        let credits = NSAttributedString(
+            string: "Calendar sync for your menu bar",
+            attributes: [.font: NSFont.systemFont(ofSize: 13), .paragraphStyle: para])
+        NSApp.orderFrontStandardAboutPanel(options: [
+            .applicationName: "maccal",
+            .applicationVersion: AppVersion.current,
+            .credits: credits,
+        ])
+    }
 
     @objc private func openSettings() {
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { requestAccess(); return }
