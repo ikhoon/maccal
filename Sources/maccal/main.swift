@@ -85,8 +85,9 @@ struct Maccal: ParsableCommand {
           First-time setup (grant maccal its own Calendar access):
             $ maccal auth
 
-        The id in the last column of agenda/search output is what you pass to show,
-        edit, and rm. Run 'maccal <command> --help' for per-command flags.
+        The last column of agenda/search is a short git-style id — pass it to show,
+        edit, or rm (it's resolved back to the event). Use --long or --json for the
+        full id. Run 'maccal <command> --help' for per-command flags.
         """,
         version: AppVersion.current,
         subcommands: [
@@ -166,6 +167,16 @@ func emptyNote(_ out: String, json: Bool, _ message: String) {
     if out.isEmpty, useTable(json: json) { Output.warn(message) }
 }
 
+/// Resolve a short git-style id (from agenda/search) to its full event handle,
+/// or print a `maccal:` message and exit 1. A full id/handle passes through.
+func resolveOrExit(_ id: String, store: CalendarStore) throws -> String {
+    do { return try resolveEventToken(id, store: store, now: Date(), timeZone: .current) }
+    catch let e as MaccalError {
+        FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
+        throw ExitCode(1)
+    }
+}
+
 /// Human date style for text output. `--iso` forces ISO; a pipe/redirect also
 /// stays ISO (machine contract for `cut`/`awk`); an interactive TTY uses the
 /// config's dateFormat ("readable" by default). `--json` dates are separate
@@ -236,7 +247,8 @@ struct AgendaCommand: ParsableCommand {
           $ maccal agenda --from 2026-06-23 --to +5d --max 10
           $ maccal agenda --json | jq -r .title              # pipe to jq
 
-        Columns: when · [calendar] · title · id (id last; use --json for scripting).
+        Columns: [●] · when · [calendar] · id — the ● is the calendar's color, the
+        id is a short git-style code (--long or --json for the full id).
         """
     )
 
@@ -265,6 +277,9 @@ struct AgendaCommand: ParsableCommand {
     @Flag(name: .customLong("iso"), help: "Force ISO-8601 dates (default: config.dateFormat, 'readable' on a TTY).")
     var iso = false
 
+    @Flag(name: .customLong("long"), help: "Show full event ids instead of the short git-style code.")
+    var long = false
+
     @Flag(name: .customLong("hide-cancelled"), help: "Hide events with a cancelled status.")
     var hideCancelled = false
 
@@ -285,6 +300,7 @@ struct AgendaCommand: ParsableCommand {
                 color: resolveColor(config, noColor: noColor, json: json),
                 aligned: useTable(json: json),
                 dateStyle: resolveDateStyle(config, iso: iso),
+                long: long,
                 hideCancelled: hideCancelled,
                 hiddenCalendars: config.hiddenCalendars,
                 showAll: all,
@@ -329,7 +345,9 @@ struct ShowCommand: ParsableCommand {
         let config = loadConfig()
         let store = EKEventStore()
         CalendarAccess.require(store: store)
-        let result = runShow(store: EKCalendarStore(store: store), id: id, json: json,
+        let ck = EKCalendarStore(store: store)
+        let resolvedId = try resolveOrExit(id, store: ck)
+        let result = runShow(store: ck, id: resolvedId, json: json,
                              color: resolveColor(config, noColor: noColor, json: json),
                              dateStyle: resolveDateStyle(config, iso: iso), now: Date(), timeZone: .current)
         guard result.found else {
@@ -389,6 +407,9 @@ struct SearchCommand: ParsableCommand {
     @Flag(name: .customLong("iso"), help: "Force ISO-8601 dates (default: config.dateFormat, 'readable' on a TTY).")
     var iso = false
 
+    @Flag(name: .customLong("long"), help: "Show full event ids instead of the short git-style code.")
+    var long = false
+
     @Flag(name: .customLong("hide-cancelled"), help: "Hide events with a cancelled status.")
     var hideCancelled = false
 
@@ -415,6 +436,7 @@ struct SearchCommand: ParsableCommand {
                 color: resolveColor(config, noColor: noColor, json: json),
                 aligned: useTable(json: json),
                 dateStyle: resolveDateStyle(config, iso: iso),
+                long: long,
                 hideCancelled: hideCancelled,
                 hiddenCalendars: config.hiddenCalendars,
                 showAll: all,
@@ -572,10 +594,12 @@ struct EditCommand: ParsableCommand {
         let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "edit")
         let store = EKEventStore()
         CalendarAccess.require(store: store, needsWrite: !dryRun) // dry-run only reads
+        let ck = EKCalendarStore(store: store)
+        let resolvedId = try resolveOrExit(id, store: ck)
         do {
             let result = try runEdit(
-                store: EKCalendarStore(store: store),
-                id: id, title: title, start: start, end: end, duration: duration, tz: tz,
+                store: ck,
+                id: resolvedId, title: title, start: start, end: end, duration: duration, tz: tz,
                 location: location, notes: notes, url: url, availability: availability,
                 calendar: calendar,
                 allOccurrences: allOccurrences, json: json, dryRun: dryRun, confirm: confirmer,
@@ -622,10 +646,12 @@ struct RmCommand: ParsableCommand {
         let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "rm")
         let store = EKEventStore()
         CalendarAccess.require(store: store, needsWrite: !dryRun) // dry-run only reads
+        let ck = EKCalendarStore(store: store)
+        let resolvedId = try resolveOrExit(id, store: ck)
         do {
             let result = try runRm(
-                store: EKCalendarStore(store: store),
-                id: id, allOccurrences: allOccurrences, json: json, dryRun: dryRun,
+                store: ck,
+                id: resolvedId, allOccurrences: allOccurrences, json: json, dryRun: dryRun,
                 confirm: confirmer, timeZone: .current
             )
             try emit(result)
@@ -786,7 +812,11 @@ struct ExportCommand: ParsableCommand {
     func run() throws {
         let store = EKEventStore()
         CalendarAccess.require(store: store)
-        guard let ev = EKCalendarStore(store: store).event(id: id) else {
+        let ck = EKCalendarStore(store: store)
+        let resolved = try resolveOrExit(id, store: ck)
+        // A recurring occurrence handle (id@epoch) exports the series anchor.
+        let seriesId = Output.parseOccurrenceHandle(resolved)?.id ?? resolved
+        guard let ev = ck.event(id: seriesId) else {
             FileHandle.standardError.write(Data("maccal: event \(id) not found\n".utf8))
             throw ExitCode(1)
         }

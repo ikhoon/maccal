@@ -58,6 +58,7 @@ public enum WriteError: MaccalError, Equatable {
     case notWritable                // target calendar is read-only
     case calendarNotFound(String)   // selector matched nothing
     case ambiguousCalendar(String)  // selector matched >1
+    case ambiguousShortId(String)   // a short id matched >1 event in the window
     case noWritableCalendar         // no default new-event calendar
     case storeFailure(String)       // EventKit NSError
 
@@ -67,6 +68,7 @@ public enum WriteError: MaccalError, Equatable {
         case .notWritable: return "the event's calendar is read-only"
         case .calendarNotFound(let s): return "no calendar matches '\(s)'"
         case .ambiguousCalendar(let s): return "'\(s)' matches more than one calendar — be more specific"
+        case .ambiguousShortId(let s): return "short id '\(s)' matches more than one event — use the full id (agenda/search --long, or --json .handle)"
         case .noWritableCalendar: return "no default calendar for new events is configured"
         case .storeFailure(let m): return "calendar store error: \(m)"
         }

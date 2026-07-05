@@ -169,9 +169,10 @@ maccal rm <id>                            # confirms before deleting
 maccal auth                               # grant maccal its own Calendar access
 ```
 
-> **The `id`** in the last column of `agenda` / `search` output is what you pass
-> to `show`, `edit`, and `rm`. Human output is TSV; add `--json` to any command
-> for NDJSON.
+> **The last column** of `agenda` / `search` is a **short git-style id** — pass it
+> to `show`, `edit`, and `rm` (it's resolved back to the event over a ±1-year
+> window). Use `--long` (or `--json` → `.handle`) for the full id. Human output is
+> TSV; add `--json` to any command for NDJSON.
 
 ---
 
@@ -215,13 +216,15 @@ maccal calendars --json         # full records (identifier, sourceType, color he
 
 ### `agenda`
 
-Events in a date window, soonest first. Columns: **when · [calendar] · title · id**
-(the `calendar` column appears only when results span more than one).
+Events in a date window, soonest first. Columns: **[●] · when · [calendar] · title
+· id** — on a terminal a leading **●** shows the calendar's color, dates are
+readable, and the id is a short git-style code (`--long` / `--json` for the full
+id). The `calendar` column appears only when results span more than one.
 
 ```console
 $ maccal agenda --from today --to +1d
-2026-06-23T10:30:00+09:00   Standup         1A2B…/RID=…
-2026-06-23T14:00:00+09:00   Design review   1A2B…@example.com
+●  2026-06-23 10:30   Standup         a1b2c3d
+●  2026-06-23 14:00   Design review   9f4e2a1
 ```
 
 ```bash

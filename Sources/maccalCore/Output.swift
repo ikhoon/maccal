@@ -5,6 +5,7 @@
 // in the reader's local zone (with offset); JSON dates are UTC ISO-8601 (Z).
 
 import Foundation
+import CryptoKit
 
 public enum Output {
     /// Shared encoder: UTC ISO-8601 dates, deterministic key order (so tests
@@ -342,6 +343,21 @@ public enum Output {
     /// print this for recurring rows so `edit`/`rm` can target one occurrence.
     public static func occurrenceHandle(id: String, start: Date) -> String {
         "\(id)@\(Int(start.timeIntervalSinceReferenceDate.rounded()))"
+    }
+
+    /// A short, stable, git-style code for an event handle: the first 7 hex chars
+    /// of its SHA-256. Deterministic across runs, so agenda/search can show it in
+    /// place of the long EK id and show/edit/rm/export resolve it back by scanning
+    /// a window. The full id/handle still works everywhere; `--long`/`--json` show it.
+    public static func shortId(_ handle: String) -> String {
+        let hex = SHA256.hash(data: Data(handle.utf8)).map { String(format: "%02x", $0) }.joined()
+        return String(hex.prefix(7))
+    }
+
+    /// True when `token` has the shape of a `shortId` (exactly 7 lowercase hex
+    /// chars), so callers can tell a short code from a full EK id/handle.
+    public static func isShortId(_ token: String) -> Bool {
+        token.count == 7 && token.allSatisfy { $0.isHexDigit && !$0.isUppercase }
     }
 
     /// Parse `<id>@<epoch>` back to (id, start), or nil when there's no numeric

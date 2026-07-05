@@ -21,6 +21,7 @@ public func runAgenda(
     color: Bool = false,
     aligned: Bool = false,
     dateStyle: Output.DateStyle = .iso,
+    long: Bool = false,
     hideCancelled: Bool = false,
     hiddenCalendars: [String] = [],
     showAll: Bool = false,
@@ -50,18 +51,22 @@ public func runAgenda(
     }
     // The calendar column only earns its width when results span >1 calendar.
     let multiCalendar = Set(shown.map(\.calendar)).count > 1
-    // Columns: when · [calendar] · title · id — the human-readable bits first,
-    // the id last (use --json for scripting). The id is left un-dimmed: it's the
-    // load-bearing token you copy into show/edit/rm, and SGR-dim can be invisible
-    // on some themes.
+    // Calendar colors for the leading marker dot (color mode only) — ties each
+    // row visually to `calendars`, so the calendar's own color is the one accent.
+    let colorByCal = color ? Dictionary(store.calendars().map { ($0.calendarIdentifier, $0.color) }, uniquingKeysWith: { a, _ in a }) : [:]
+    // Columns: [●] · when · [calendar] · id — the id is a short git-style code
+    // (full via --long / --json), un-dimmed so it stays legible and copyable.
     let rows = shown.map { ev -> [String] in
-        let when = Output.paint(Output.when(ev, style: dateStyle, timeZone: timeZone, now: now), .cyan, enabled: color)
+        let when = Output.when(ev, style: dateStyle, timeZone: timeZone, now: now)   // no cyan: the dot is the accent
         let title = Output.sanitize(ev.title)
-        // Recurring rows print an occurrence handle (id@epoch) so edit/rm can target one.
-        let idStr = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
-        return multiCalendar
+        // Recurring rows carry an occurrence handle (id@epoch) so edit/rm target one.
+        let handle = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
+        let idStr = long ? handle : Output.shortId(handle)
+        var row = multiCalendar
             ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, idStr]
             : [when, title, idStr]
+        if color { row.insert(Output.colorDot(colorByCal[ev.calendarId] ?? ""), at: 0) }
+        return row
     }
     return Output.table(rows, aligned: aligned)
 }

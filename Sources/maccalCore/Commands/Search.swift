@@ -40,6 +40,7 @@ public func runSearch(
     color: Bool = false,
     aligned: Bool = false,
     dateStyle: Output.DateStyle = .iso,
+    long: Bool = false,
     hideCancelled: Bool = false,
     hiddenCalendars: [String] = [],
     showAll: Bool = false,
@@ -77,16 +78,19 @@ public func runSearch(
         Output.warn("showing \(shown.count) of \(total) — narrow filters or raise --max")
     }
     let multiCalendar = Set(shown.map(\.calendar)).count > 1
-    // Columns: when · [calendar] · title · id (human bits first, id last, un-dimmed
-    // so the copy-into-edit/rm token stays legible on every theme).
+    let colorByCal = color ? Dictionary(store.calendars().map { ($0.calendarIdentifier, $0.color) }, uniquingKeysWith: { a, _ in a }) : [:]
+    // Columns: [●] · when · [calendar] · id — matching agenda. Short git-style id
+    // (full via --long / --json), un-dimmed so it stays legible/copyable.
     let rows = shown.map { ev -> [String] in
-        let when = Output.paint(Output.when(ev, style: dateStyle, timeZone: timeZone, now: now), .cyan, enabled: color)
+        let when = Output.when(ev, style: dateStyle, timeZone: timeZone, now: now)
         let title = Output.sanitize(ev.title)
-        // Recurring rows print an occurrence handle (id@epoch) so edit/rm can target one.
-        let idStr = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
-        return multiCalendar
+        let handle = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
+        let idStr = long ? handle : Output.shortId(handle)
+        var row = multiCalendar
             ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, idStr]
             : [when, title, idStr]
+        if color { row.insert(Output.colorDot(colorByCal[ev.calendarId] ?? ""), at: 0) }
+        return row
     }
     return Output.table(rows, aligned: aligned)
 }
