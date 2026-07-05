@@ -5,12 +5,19 @@
 <h1 align="center">maccal</h1>
 
 <p align="center">
-  <b>A fast, scriptable macOS Calendar CLI</b> — with an optional menu-bar sync app.<br>
-  List, search, add, edit, and mirror your calendar events from the terminal — no OAuth, no API tokens, no Full Disk Access.
+  <b>Your Mac already syncs all your calendars. maccal puts them in your terminal.</b><br>
+  Google, iCloud, Exchange, CalDAV — read and write them all from the terminal: no OAuth,
+  no API tokens, no network, works offline. Plus a menu-bar app that quietly mirrors
+  calendars across accounts in the background.
 </p>
 
 <p align="center">
   <a href="https://github.com/ikhoon/maccal/actions/workflows/ci.yml"><img src="https://github.com/ikhoon/maccal/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white" alt="macOS 14+">
+  <img src="https://img.shields.io/badge/universal-arm64%20%2B%20x86__64-333333" alt="universal binary">
+  <img src="https://img.shields.io/badge/privacy-local--only-2ea44f" alt="privacy: local-only">
+  <img src="https://img.shields.io/badge/install-brew-FBB040?logo=homebrew&logoColor=white" alt="install: brew">
+  <img src="https://img.shields.io/badge/tests-630%20checks-4b8bbe" alt="tests: 630 checks">
 </p>
 
 <p align="center">
@@ -20,55 +27,55 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo-cli.gif" alt="maccal CLI demo — calendars, agenda, add, search" width="820">
+  <img src="assets/demo-cli.gif" alt="maccal CLI demo — calendars, agenda, show, free" width="820">
 </p>
 
-Backed by **EventKit** — the local store macOS already syncs from your accounts —
-so the only permission it needs is **Calendars**, granted to *maccal itself*
-rather than your terminal.
-
-- ⚡ **Fast** — reads the local EventKit store directly; no network.
-- 🔒 **Minimal permission** — maccal holds its *own* Calendar grant (not the
-  terminal's), so you don't expose every program in your terminal to your
-  calendar. See [Calendar access](#calendar-access-one-time).
-- 🤖 **Scriptable** — `--json` (NDJSON) on every read/write command, made for `jq` / LLM
-  pipelines. Destructive commands confirm by default and take `--yes` / `--dry-run`.
-- 🗓️ **Full CRUD + sync** — `calendars` · `agenda` · `show` · `search` · `add` · `edit` · `rm` · `sync`.
-- 🖥️ **Optional menu-bar app** — scheduled background calendar-to-calendar sync.
-  See [Menu-bar app](#menu-bar-sync-app-maccalapp).
+- **See your day without leaving the terminal.** `maccal agenda` prints every
+  account's events in one aligned, color-coded table — online meetings flagged 💻,
+  short git-style ids you can `show` / `edit` / `rm`. Instant, and it works offline.
+- **Put your work calendar on your personal phone.** `maccal sync` keeps a
+  **one-way mirror** across accounts — work Google → personal iCloud, or three team
+  calendars → one "Mirror" — and only ever touches its own marked copies, never
+  your events. The menu-bar app re-runs it in the background: set sources and a
+  target once, forget it. [→ Mirror calendars across accounts](#mirror-calendars-across-accounts)
+- **Automate it in one line.** `maccal add "Lunch" --start "tomorrow 12:00"
+  --duration 1h` — natural-language dates, `--dry-run` preview, `--yes` for cron.
+  Read, write, and sync commands all speak `--json`, and every event carries its
+  meeting link — so `jq`, cron, and LLM agents can drive your calendar.
+- **Private by construction.** Nothing leaves your Mac — no network calls, no
+  telemetry — and maccal holds its *own* Calendar permission, so your terminal
+  (and everything running in it) never gets access.
 
 ---
 
 ## Contents
 
-- [Install](#install) · [Calendar access](#calendar-access-one-time)
-- [Quick start](#quick-start) — copy-paste cheat sheet
-- [Commands](#commands)
-  - Read: [`calendars`](#calendars) · [`agenda`](#agenda) · [`show`](#show) · [`search`](#search) · [`free`](#free)
-  - Write: [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`sync`](#sync)
-  - Interop: [`export` / `import`](#export--import) · Setup: [`auth`](#auth)
-- [Menu-bar sync app](#menu-bar-sync-app-maccalapp) — scheduled background sync
-- [Dates & durations](#dates--durations) · [Configuration](#configuration) · [Scripting with JSON](#scripting-with-json) · [Shell completion](#shell-completion)
-- [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [Privacy](#privacy) · [Requirements](#requirements) · [Development](#development)
+- [Install](#install) · [Quick start](#quick-start) · [Mirror calendars across accounts](#mirror-calendars-across-accounts)
+- [Commands](#commands): [`calendars`](#calendars) · [`agenda`](#agenda) · [`show`](#show) · [`search`](#search) · [`free`](#free) · [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`sync`](#sync) · [`export`/`import`](#export--import) · [`auth`](#auth) — plus the [menu-bar app reference](#menu-bar-app-reference) and [Scripting with JSON](#scripting-with-json)
+- [Dates & durations](#dates--durations) · [Configuration](#configuration) · [Shell completion](#shell-completion) · [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [Privacy](#privacy) · [Requirements](#requirements) · [Development](#development)
 
 ---
 
 ## Install
 
-Universal (Apple Silicon + Intel). Homebrew is the easy path — its download isn't
-quarantined, so there's no Gatekeeper prompt.
+One command — the app bundles the CLI, so you get both:
 
-### Homebrew (recommended)
+```console
+$ brew install --cask ikhoon/tap/maccal-app
+```
+
+That's the menu-bar sync app ([what it does](#mirror-calendars-across-accounts))
+**plus** the `maccal` CLI on your `PATH`. Universal (Apple Silicon + Intel); the
+Homebrew download isn't quarantined, so there's no Gatekeeper prompt. On first use
+macOS pops the Calendar-access dialog — click **Allow**. That's the whole setup.
+
+Really only want the CLI, no app?
 
 ```console
 $ brew install ikhoon/tap/maccal             # CLI only
-$ brew install --cask ikhoon/tap/maccal-app  # CLI + menu-bar sync app
 ```
 
-Both put `maccal` on your `PATH`, so pick one — the cask bundles the CLI. Then
-authorize Calendar access once with `maccal auth` (see
-[Calendar access](#calendar-access-one-time)); for the app, see the
-[menu-bar app](#menu-bar-sync-app-maccalapp) section.
+(Pick one — both put `maccal` on your `PATH`.)
 
 <details>
 <summary><b>Other install methods</b> — release zip · from source</summary>
@@ -110,27 +117,14 @@ $ which maccal        # → /Users/you/.local/bin/maccal
 $ maccal --help
 ```
 
+For the **menu-bar app** from source, `./package.sh --install` builds a universal
+`maccal.app`, installs it to `/Applications`, symlinks the bundled (signed) CLI to
+`~/.local/bin/maccal` (it shares the app's Calendar grant), and launches it. The
+build is ad-hoc signed by default — every rebuild changes the code hash, so macOS
+re-asks for Calendar access; for an iterative local loop set `MACCAL_SIGN_ID` to a
+self-signed keychain identity and the grant survives rebuilds.
+
 </details>
-
-## Calendar access (one-time)
-
-maccal needs Calendar access. For a CLI the grant would normally attach to your
-*terminal* — giving every program in that terminal calendar access. maccal avoids
-that: it's an app bundle and **disclaims TCC responsibility at startup**, so the
-grant is keyed on `maccal.app`, not the launching terminal. Bootstrap it once,
-interactively:
-
-```console
-$ maccal auth
-```
-
-A dialog titled **maccal** appears → click **Allow**. maccal now shows up under
-*System Settings → Privacy & Security → Calendars* and works from **any** terminal
-(Terminal.app, iTerm, cmux, VS Code, …) — no terminal-wide permission needed. The
-stable codesign identifier means the grant survives rebuilds. To reset:
-`tccutil reset Calendar kr.ikhoon.maccal`.
-
----
 
 ## Quick start
 
@@ -165,8 +159,11 @@ maccal edit <id> --location "Room 4F"     # prompts; before→after diff with --
 maccal edit <id> --start "tomorrow 16:00" # end shifts to keep the duration
 maccal rm <id>                            # confirms before deleting
 
-# FIRST-TIME SETUP ───────────────────────────────────────────────────────
-maccal auth                               # grant maccal its own Calendar access
+# OPEN YOUR NEXT VIDEO CALL ──────────────────────────────────────────────
+maccal agenda --json | jq -r 'select(.meetingUrl != "") | .meetingUrl' | head -1 | xargs open
+
+# MIRROR — work → personal, so your phone sees everything ────────────────
+maccal sync --from "Google/Work" --to "iCloud/Mirror" --dry-run
 ```
 
 > **The last column** of `agenda` / `search` is a **short git-style id** — pass it
@@ -174,6 +171,66 @@ maccal auth                               # grant maccal its own Calendar access
 > ±1-year window). On a terminal, output is an **aligned table** with short ids and
 > readable dates; **piped/redirected output is raw tab-separated TSV with full ids
 > and ISO dates** (script-safe). Add `--json` for NDJSON.
+
+---
+
+## Mirror calendars across accounts
+
+Your work Google calendar and your personal iCloud don't know about each other —
+so your phone shows half your day, and the meeting you miss is always on the
+calendar you didn't check. The usual fixes hand OAuth tokens for *both* accounts
+to a third-party sync service.
+
+maccal fixes it locally. `maccal sync` keeps a **one-way mirror** of one or more
+source calendars inside a target calendar — across accounts, idempotent, safe to
+re-run forever:
+
+```console
+$ maccal sync --from "Google/Work" --to "iCloud/Mirror" --dry-run
+would sync: Work → Mirror   +3 new  ~0 changed  -0 removed  ✂0 cancelled
+  + 2026-07-07T10:00:00+09:00  Standup
+  + 2026-07-07T14:00:00+09:00  Design review
+  + 2026-07-08T12:00:00+09:00  Lunch
+```
+
+- **Work → personal.** Mirror your work calendar into iCloud and your phone and
+  watch finally show your whole day — no MDM profile, no second calendar app.
+- **Many → one.** `--from` repeats: fold several team calendars into a single
+  "Mirror" calendar and point everyone at that.
+- **It never eats your events.** Every mirrored copy carries a hidden marker, so
+  re-runs add, update, and remove *exactly maccal's own copies* — everything else
+  in the target is never a candidate, not on the first run, not on the
+  thousandth. And one-way means one-way: nothing ever flows back into the source.
+- **Recurring- and cancellation-aware.** A repeating source mirrors as one
+  repeating event, not a copy per occurrence — and cancelled occurrences are
+  cancelled in the mirror too (that's the `✂` in the tally).
+
+### Set it and forget it: the menu-bar app
+
+<p align="center">
+  <img src="assets/demo-app.png" alt="maccal menu-bar app — sources, target, and last-sync status" width="420">
+</p>
+
+Skip the cron job. **maccal.app** runs the same sync engine on a schedule from
+your menu bar: pick source calendars and a target once in **Settings…** and
+background sync just starts — every 30 minutes by default, with **Start at
+login** and **Keep awake for sync** one click away. The menu shows when the last
+sync ran and what changed (`+2 ~1 −0`), and the icon **spins blue while a sync
+is in flight**.
+
+It's the same one-command install from [Install](#install) — the cask ships the
+app **and** the CLI:
+
+```console
+$ brew install --cask ikhoon/tap/maccal-app
+```
+
+The app bundles its own copy of the `maccal` CLI, signed with the app's
+identity, so background sync shares the app's Calendar permission and never
+stalls on a dialog. Full flags (`--since`/`--until` windows, `--notes`,
+`--no-delete`, `Account/*` selectors) are in the [`sync` reference](#sync);
+settings and menu toggles are in the
+[menu-bar app reference](#menu-bar-app-reference).
 
 ---
 
@@ -409,6 +466,9 @@ maccal rm "<id>@<epoch>"          # skip ONE occurrence of a repeat (the id agen
 
 ### `sync`
 
+The engine behind [Mirror calendars across accounts](#mirror-calendars-across-accounts) —
+full flags below.
+
 One-way **mirror** one or more source calendars into a target over a date window.
 Idempotent: re-run any time (or from `cron`/`launchd`) and it only adds new
 events, updates changed ones, and removes ones whose source is gone. Only
@@ -439,7 +499,7 @@ maccal sync --from A --to B --no-delete --yes            # never delete from tar
 Default window is today … +30d (override with `--since`/`--until`). Each copy
 carries **title + time + location**; `--notes` also copies the body and
 `--no-location` drops the location. Automate it with a `launchd`/`cron` job
-running `maccal sync … --yes` — or let the [menu-bar app](#menu-bar-sync-app-maccalapp)
+running `maccal sync … --yes` — or let the [menu-bar app](#mirror-calendars-across-accounts)
 schedule it for you.
 
 Flags: `--from` (repeatable), `--to`, `--since`/`--until`, `--notes`,
@@ -470,26 +530,18 @@ rules aren't round-tripped yet.
 
 ### `auth`
 
-Grant maccal its own Calendar access (run once, interactively). See
-[Calendar access](#calendar-access-one-time).
-
-```console
-$ maccal auth        # a "maccal" dialog appears → click Allow
-```
+Rarely needed — macOS asks for Calendar access automatically on first use. Run
+`maccal auth` to pre-grant it (scripts/CI) or to re-trigger the dialog after a
+`tccutil` reset.
 
 ---
 
-## Menu-bar sync app (maccal.app)
+## Menu-bar app reference
 
-Not everyone wants to hand-write a `launchd` job. **maccal.app** is a menu-bar
-companion that schedules `maccal sync` for you and keeps it running in the
-background — set your calendars once and forget it.
-
-A calendar icon with a small sync overlay sits in your menu bar — it **spins in
-blue while a sync is in flight**, so you can see it working at a glance. Click it
-for the current status — the calendars you're mirroring, the target, and when the
-last sync ran — plus **About maccal**, **Sync now**, **Settings…**, and the
-toggles below.
+The pitch lives in [Mirror calendars across accounts](#mirror-calendars-across-accounts);
+this is the reference. The menu shows the mirrored sources, the target, the
+last-sync time and tally, plus **About maccal**, **Sync now** (⌘S), **Settings…**
+(⌘,), and the toggles below.
 
 ### Settings
 
@@ -516,9 +568,7 @@ record, so background runs show up too).
 | **Keep awake for sync** | Holds an `IOPMAssertion` so the Mac won't **idle-sleep** and miss a scheduled sync. *(Closing the lid still sleeps — a macOS limitation.)* |
 | **Start at login** | Registers the app as a login item, so it's back after every reboot. |
 
-Both are custom menu items that **don't dismiss the menu when clicked** — flip
-several in a row — while keeping the native look (SF Symbol, checkmark, hover
-highlight).
+Both toggles stay put when clicked, so you can flip several in a row.
 
 ### Why a bundled CLI?
 
@@ -534,33 +584,9 @@ The app **bundles the `maccal` CLI** and runs *that* copy for background sync:
 
 ### Install the app
 
-**Homebrew cask** (recommended) — installs the app **and** puts the bundled `maccal`
-CLI on your `PATH`, so this one command gives you both the GUI and the terminal
-command (updates with `brew upgrade`):
-
-```console
-$ brew install --cask ikhoon/tap/maccal-app
-```
-
-> Only want the terminal CLI, no app? Install the [formula](#homebrew-recommended)
-> instead — `brew install ikhoon/tap/maccal`. Both put `maccal` on `PATH`, so pick
-> one, not both.
-
-**From source** — build a universal `maccal.app`, install to `/Applications`,
-symlink the bundled (signed) CLI to `~/.local/bin/maccal` (it shares the app's
-Calendar grant), and launch:
-
-```console
-$ ./package.sh --install
-```
-
-By default the build is ad-hoc signed — every rebuild changes the code hash, so
-macOS re-asks for Calendar access. For an iterative local loop, set
-`MACCAL_SIGN_ID` to a self-signed keychain identity and the grant survives
-rebuilds: `MACCAL_SIGN_ID=my-dev-cert ./package.sh --install`.
-
-Or download `maccal-menubar-<version>-macos-universal.zip` from **Releases**, unzip,
-and drag `maccal.app` to `/Applications`.
+One command — see [Install](#install) (`brew install --cask ikhoon/tap/maccal-app`
+ships the app **and** the CLI). From-source and release-zip options live in
+Install's *Other install methods*.
 
 ### Calendar access for the app
 
@@ -574,6 +600,43 @@ shares this grant — background sync needs no separate prompt.
 > (`maccal.app`, background sync) each carry their own Calendar permission, so
 > revoking one leaves the other intact. Reset either with
 > `tccutil reset Calendar kr.ikhoon.maccal` / `tccutil reset Calendar kr.ikhoon.maccalbar`.
+
+---
+
+## Scripting with JSON
+
+Every read/write/sync command supports `--json` (NDJSON — one object per line;
+`export` emits `.ics` instead). Dates are UTC
+ISO-8601 (`Z`) in JSON; piped text stays local ISO with offset, while a terminal
+uses `dateFormat` (readable by default). Every field is always present (empty
+values are `""` / `[]` / `false`) — except `recurrenceRule`, which appears only
+when `recurring` is true — so `jq` (almost) never hits a missing key.
+
+Each event carries a **`handle`** — the exact token to pass to `show` / `edit` /
+`rm`. For a one-off it equals `.id`; for a recurring event it's `id@epoch`,
+pinning the single occurrence you saw. Use `.handle` (not `.id`) when scripting
+edits/deletes so you don't accidentally hit a whole series. Events also carry
+**`meetingUrl`** — the detected video-conference link (`""` when none):
+
+```bash
+# Open the next online meeting's link
+maccal agenda --json | jq -r 'select(.meetingUrl != "") | .meetingUrl' | head -1 | xargs open
+```
+
+```bash
+# When + title of the next week's events
+maccal agenda --json | jq -r '"\(.start)  \(.title)"'
+
+# How many events match, without pulling rows
+maccal search incident --count-only --json | jq '._summary.total'
+
+# Delete every event matching a phrase (skip the _summary line);
+# .handle targets the exact occurrence, not the whole series
+maccal search "cancelled demo" --json \
+  | jq -r 'select(._summary | not) | .handle' \
+  | xargs -I{} maccal rm {} --yes
+```
+
 
 ---
 
@@ -627,40 +690,6 @@ optional: a missing file just means built-in defaults. Precedence is **flag > en
 
 ---
 
-## Scripting with JSON
-
-Every read/write/sync command supports `--json` (NDJSON — one object per line;
-`export` emits `.ics` instead). Dates are UTC
-ISO-8601 (`Z`) in JSON; piped text stays local ISO with offset, while a terminal
-uses `dateFormat` (readable by default). Every field is always present (empty
-values are `""` / `[]` / `false`) — except `recurrenceRule`, which appears only
-when `recurring` is true — so `jq` (almost) never hits a missing key.
-
-Each event carries a **`handle`** — the exact token to pass to `show` / `edit` /
-`rm`. For a one-off it equals `.id`; for a recurring event it's `id@epoch`,
-pinning the single occurrence you saw. Use `.handle` (not `.id`) when scripting
-edits/deletes so you don't accidentally hit a whole series. Events also carry
-**`meetingUrl`** — the detected video-conference link (`""` when none):
-
-```bash
-# Open the next online meeting's link
-maccal agenda --json | jq -r 'select(.meetingUrl != "") | .meetingUrl' | head -1 | xargs open
-```
-
-```bash
-# When + title of the next week's events
-maccal agenda --json | jq -r '"\(.start)  \(.title)"'
-
-# How many events match, without pulling rows
-maccal search incident --count-only --json | jq '._summary.total'
-
-# Delete every event matching a phrase (skip the _summary line);
-# .handle targets the exact occurrence, not the whole series
-maccal search "cancelled demo" --json \
-  | jq -r 'select(._summary | not) | .handle' \
-  | xargs -I{} maccal rm {} --yes
-```
-
 ---
 
 ## Shell completion
@@ -695,7 +724,7 @@ line to add before `compinit`).
 | **"the event's calendar is read-only"** | Subscribed/holiday calendars can't be modified — pick a writable one (`maccal calendars --writable`). |
 | **"refusing to … without --yes"** | Non-interactive (piped/cron) writes need `--yes`; there's no TTY to confirm on. |
 | **`maccal: command not found`** | `~/.local/bin` (source) or `/opt/homebrew/bin` (brew) isn't on `PATH`. Check with `which maccal`. |
-| **Background sync doesn't run** | Open the [menu-bar app](#menu-bar-sync-app-maccalapp), set sources + a target, grant it Calendar access. Enable "Keep awake for sync" if the Mac idles. |
+| **Background sync doesn't run** | Open the [menu-bar app](#mirror-calendars-across-accounts), set sources + a target, grant it Calendar access. Enable "Keep awake for sync" if the Mac idles. |
 
 ---
 
@@ -722,7 +751,9 @@ maccal.app (menu-bar)
 - **Calendar access is keyed to maccal, not your terminal.** maccal is an `.app`
   bundle and **disclaims TCC responsibility** at startup (a one-shot `posix_spawn`
   re-exec), so macOS attributes the grant to `maccal.app` — its own row in
-  Settings, usable from every terminal (Terminal, iTerm, VS Code, …).
+  Settings, usable from every terminal (Terminal, iTerm, VS Code, …). The dialog
+  pops automatically on first use (`maccal auth` merely pre-triggers it), and the
+  stable codesign identifier means the grant survives updates.
 - **The menu-bar app bundles the CLI.** Background sync shells out to the copy of
   `maccal` inside `maccal.app`, signed with the app's identity so it **shares the
   app's Calendar grant** — no separate `brew install`, no second prompt.
@@ -787,7 +818,7 @@ maccal is local-first — nothing about your calendar leaves your machine.
 
 ```console
 $ swift build              # build
-$ swift run maccalCheck    # run the pure test suite (no Calendar access needed)
+$ swift run maccalCheck    # 630 checks, pure logic — no Calendar access needed
 ```
 
 `maccalCheck` is a dependency-free harness (XCTest/swift-testing aren't needed),
