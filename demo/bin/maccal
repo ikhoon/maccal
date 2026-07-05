@@ -1,31 +1,45 @@
 #!/usr/bin/env bash
 # mock `maccal` for the README demo gif — canned, fictional output that never
-# touches a real calendar. Colors mirror the real CLI (time cyan, id dim,
-# rw green / ro yellow, a truecolor swatch), so the gif shows the real look.
-CY=$'\e[36m'; DIM=$'\e[2m'; GRN=$'\e[32m'; YEL=$'\e[33m'; BLD=$'\e[1m'; R=$'\e[0m'
+# touches a real calendar. Mirrors the real "Ink & Token" look: calendar-color
+# leading dot, readable date ranges (+ the all-day marker), bold titles, the 💻
+# online-meeting marker, cyan short ids, bold show labels, green free durations.
+B=$'\e[1m'; CY=$'\e[36m'; GRN=$'\e[32m'; YEL=$'\e[33m'; R=$'\e[0m'
+DOT_Y=$'\e[38;2;255;204;0m●'$R   # Work      #FFCC00
+DOT_G=$'\e[38;2;131;215;84m●'$R  # Personal  #83D754
+DOT_T=$'\e[38;2;22;167;101m●'$R  # Holidays  #16A765
 sub="${1:-}"; shift 2>/dev/null || true
 case "$sub" in
   calendars)
-    printf "${BLD}%-12s${R} ${DIM}%-18s${R} ${DIM}%-13s${R} ${GRN}rw${R}  \e[38;2;255;204;0m●${R} %s\n" "Work" "you@example.com" "caldav" "#FFCC00"
-    printf "${BLD}%-12s${R} ${DIM}%-18s${R} ${DIM}%-13s${R} ${GRN}rw${R}  \e[38;2;131;215;84m●${R} %s\n" "Personal" "you@example.com" "caldav" "#83D754"
-    printf "${BLD}%-12s${R} ${DIM}%-18s${R} ${DIM}%-13s${R} ${YEL}ro${R}  \e[38;2;22;167;101m●${R} %s\n" "Holidays" "Subscriptions" "subscription" "#16A765"
+    printf "%s  ${B}Work${R}      you@example.com  caldav        ${GRN}rw${R}\n" "$DOT_Y"
+    printf "%s  ${B}Personal${R}  you@example.com  caldav        ${GRN}rw${R}\n" "$DOT_G"
+    printf "%s  ${B}Holidays${R}  Subscriptions    subscription  ${YEL}ro${R}\n" "$DOT_T"
     ;;
   agenda)
-    printf "${CY}%-27s${R} %-15s ${DIM}%s${R}\n" "2026-06-23T10:30:00+09:00" "Standup" "1A2B…/RID"
-    printf "${CY}%-27s${R} %-15s ${DIM}%s${R}\n" "2026-06-23T14:00:00+09:00" "Design review" "1A2B…@example.com"
-    printf "${CY}%-27s${R} %-15s ${DIM}%s${R}\n" "2026-06-23T17:00:00+09:00" "1:1 with Sam" "1A2B…@example.com"
+    printf "%s  Jul 6 10:30–11:00  Work      ${B}Standup${R} 💻     ${CY}a1b2c3d${R}\n" "$DOT_Y"
+    printf "%s  Jul 6 14:00–15:30  Work      ${B}Design review${R}  ${CY}9f4e2a1${R}\n" "$DOT_Y"
+    printf "%s  Jul 7 all-day      Personal  ${B}Team offsite${R}   ${CY}77e1c09${R}\n" "$DOT_G"
+    printf "%s  Jul 7 19:00–20:30  Personal  ${B}Dinner w/ Sam${R}  ${CY}3c9d112${R}\n" "$DOT_G"
     ;;
-  search)
-    printf "${CY}%-27s${R} %-15s ${DIM}%s${R}\n" "2026-06-23T10:30:00+09:00" "Standup" "1A2B…/RID"
-    printf "${CY}%-27s${R} %-15s ${DIM}%s${R}\n" "2026-06-16T10:30:00+09:00" "Standup" "9F3C…/RID"
-    printf "total: 2\n"
+  show)
+    printf "${B}%-14s${R}%s\n" "Id:" "CAFE1234-5678-90AB-CDEF-1122334455@ex.com"
+    printf "${B}%-14s${R}%s\n" "Title:" "Standup"
+    printf "${B}%-14s${R}%s\n" "When:" "Jul 6 10:30 — Jul 6 11:00"
+    printf "${B}%-14s${R}%s\n" "Calendar:" "Work"
+    printf "${B}%-14s${R}%s\n" "Online:" "https://meet.google.com/abc-defg-hij"
+    printf "${B}%-14s${R}%s\n" "Status:" "confirmed"
+    printf "${B}%-14s${R}%s\n" "Availability:" "busy"
+    printf "${B}%-14s${R}%s\n" "Recurring:" "weekly on Mon, Tue, Wed, Thu"
+    ;;
+  free)
+    printf "${B}Jul 7 09:00${R}  ${B}Jul 7 10:30${R}  ${GRN}(1h30m)${R}\n"
+    printf "${B}Jul 7 12:30${R}  ${B}Jul 7 18:00${R}  ${GRN}(5h30m)${R}\n"
     ;;
   add)
-    printf "${DIM}%-14s${R}%s\n" "Title:" "Lunch"
-    printf "${DIM}%-14s${R}%s\n" "When:" "2026-06-24T12:00:00+09:00 — 2026-06-24T13:00:00+09:00"
-    printf "${DIM}%-14s${R}%s\n" "Calendar:" "Personal"
-    printf "${DIM}%-14s${R}%s\n" "Status:" "confirmed"
-    printf "${DIM}%-14s${R}%s\n" "Availability:" "busy"
+    printf "${B}%-14s${R}%s\n" "Title:" "Lunch"
+    printf "${B}%-14s${R}%s\n" "When:" "Jul 7 12:00 — Jul 7 13:00"
+    printf "${B}%-14s${R}%s\n" "Calendar:" "Personal"
+    printf "${B}%-14s${R}%s\n" "Status:" "confirmed"
+    printf "${B}%-14s${R}%s\n" "Availability:" "busy"
     ;;
   *) printf 'maccal %s\n' "$sub" ;;
 esac
