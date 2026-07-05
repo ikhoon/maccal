@@ -35,10 +35,106 @@ public enum Output {
         return s + "\n"
     }
 
-    /// Tab-separated rows. Empty input → "".
+    /// Wraps an EventInfo so its JSON gains a `handle` — the exact token the human
+    /// last column shows and that show/edit/rm accept: the series `id`, or
+    /// `id@epoch` for a specific recurring occurrence. Keeps text and `--json` in
+    /// sync so `agenda --json | jq -r .handle | … edit/rm` targets the same thing.
+    private struct EventEnvelope: Encodable {
+        let event: EventInfo
+        var handle: String { event.handle }
+        enum CodingKeys: String, CodingKey { case handle }
+        func encode(to encoder: Encoder) throws {
+            try event.encode(to: encoder)                       // all EventInfo keys…
+            var c = encoder.container(keyedBy: CodingKeys.self) // …plus handle, merged
+            try c.encode(handle, forKey: .handle)
+        }
+    }
+
+    /// NDJSON of events, each with an added `handle` field. Use for agenda/search.
+    public static func eventsNDJSON(_ events: [EventInfo]) -> String {
+        ndjson(events.map { EventEnvelope(event: $0) })
+    }
+
+    /// One event as a JSON line, with an added `handle` field. Use for `show`.
+    public static func eventLine(_ event: EventInfo) -> String {
+        jsonLine(EventEnvelope(event: event))
+    }
+
+    /// Write a one-line notice to stderr, prefixed `maccal:`. Truncation notices
+    /// and TTY empty-state hints go here so stdout (the data / --json) stays clean
+    /// and pipe-parseable.
+    public static func warn(_ message: String) {
+        FileHandle.standardError.write(Data("maccal: \(message)\n".utf8))
+    }
+
+    /// Tab-separated rows. Empty input → "". This is the machine form: one `\t`
+    /// between cells so `cut -f` / `awk -F'\t'` work. Piped and `--json`-adjacent
+    /// output uses this; a human TTY uses `table(_:aligned:)` instead.
     public static func tsv(_ rows: [[String]]) -> String {
         if rows.isEmpty { return "" }
         return rows.map { $0.joined(separator: "\t") }.joined(separator: "\n") + "\n"
+    }
+
+    /// Render rows for output: a space-padded, column-aligned table when `aligned`
+    /// (a human TTY), else the raw `\t` TSV (pipes / `--json` context) so scripts
+    /// still parse. Column widths use `displayWidth` — ANSI escapes count 0 and
+    /// East-Asian wide characters count 2 — so colored, bilingual rows line up.
+    /// The last cell is never padded (no trailing spaces). Empty input → "".
+    public static func table(_ rows: [[String]], aligned: Bool, gutter: Int = 2) -> String {
+        if rows.isEmpty { return "" }
+        if !aligned { return tsv(rows) }
+        let cols = rows.map(\.count).max() ?? 0
+        var widths = [Int](repeating: 0, count: cols)
+        for r in rows {
+            for (i, c) in r.enumerated() { widths[i] = max(widths[i], displayWidth(c)) }
+        }
+        let lines = rows.map { r -> String in
+            var out = ""
+            for (i, c) in r.enumerated() {
+                out += c
+                if i < r.count - 1 {                       // pad every cell but the last
+                    out += String(repeating: " ", count: widths[i] - displayWidth(c) + gutter)
+                }
+            }
+            return out
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Visible column width of `s` as a terminal renders it: ANSI SGR escapes are
+    /// invisible (0), East-Asian Wide/Fullwidth scalars take 2 cells, combining /
+    /// zero-width scalars take 0, everything else 1. Used by `table` so alignment
+    /// survives color codes and CJK text. Approximate for exotic emoji ZWJ
+    /// sequences (over-counts), which don't appear in calendar/account names.
+    public static func displayWidth(_ s: String) -> Int {
+        let plain = stripANSI(s)
+        var w = 0
+        for scalar in plain.unicodeScalars { w += scalarWidth(scalar) }
+        return w
+    }
+
+    /// wcwidth-style width for one scalar: 0 / 1 / 2. Kept private; callers use
+    /// `displayWidth` on whole (possibly colored) strings.
+    private static func scalarWidth(_ u: Unicode.Scalar) -> Int {
+        let v = u.value
+        // Zero-width: C0/C1 controls, combining marks, ZW joiners, variation
+        // selectors, BOM/ZWNBSP. (Tabs/newlines are sanitized out upstream.)
+        if v < 0x20 || (v >= 0x7F && v < 0xA0) { return 0 }
+        switch u.properties.generalCategory {
+        case .nonspacingMark, .enclosingMark, .format: return 0
+        default: break
+        }
+        if v == 0x200B || v == 0xFEFF { return 0 }
+        // East-Asian Wide / Fullwidth ranges (Hangul, CJK, kana, fullwidth forms,
+        // common emoji blocks, CJK extensions).
+        let wide: [ClosedRange<UInt32>] = [
+            0x1100...0x115F, 0x2E80...0x303E, 0x3041...0x33FF, 0x3400...0x4DBF,
+            0x4E00...0x9FFF, 0xA000...0xA4CF, 0xAC00...0xD7A3, 0xF900...0xFAFF,
+            0xFE10...0xFE19, 0xFE30...0xFE6F, 0xFF00...0xFF60, 0xFFE0...0xFFE6,
+            0x1F300...0x1FAFF, 0x20000...0x3FFFD,
+        ]
+        for r in wide where r.contains(v) { return 2 }
+        return 1
     }
 
     /// Local-time ISO-8601 with offset, e.g. `2026-06-02T11:35:00+09:00`.
@@ -156,8 +252,8 @@ public enum Output {
     }
 
     /// Wrap `s` in the given ANSI styles when `enabled`; otherwise return it
-    /// unchanged. Column widths aren't affected because human output is tab-
-    /// separated (the terminal aligns on tabs, ignoring the escape codes).
+    /// unchanged. Safe inside `table` columns: `displayWidth` strips these escapes
+    /// before measuring, so colored cells still align.
     public static func paint(_ s: String, _ styles: Style..., enabled: Bool) -> String {
         guard enabled, !styles.isEmpty else { return s }
         return styles.map(\.rawValue).joined() + s + Style.reset.rawValue
@@ -171,6 +267,17 @@ public enum Output {
         guard h.count == 6, let v = Int(h, radix: 16) else { return hex }
         let r = (v >> 16) & 0xFF, g = (v >> 8) & 0xFF, b = v & 0xFF
         return "\u{001B}[38;2;\(r);\(g);\(b)m●\u{001B}[0m \(hex)"
+    }
+
+    /// A bare truecolor dot in the calendar's own color, no hex — the leading
+    /// marker in `calendars` human output. An unparseable hex falls back to a
+    /// plain dot so the column stays present and aligned. (Callers add this only
+    /// when color is on; the hex still ships in `--json`.)
+    public static func colorDot(_ hex: String) -> String {
+        let h = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard h.count == 6, let v = Int(h, radix: 16) else { return "●" }
+        let r = (v >> 16) & 0xFF, g = (v >> 8) & 0xFF, b = v & 0xFF
+        return "\u{001B}[38;2;\(r);\(g);\(b)m●\u{001B}[0m"
     }
 
     /// Strip ANSI escape codes — used before persisting a possibly-colorized

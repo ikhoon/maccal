@@ -14,12 +14,21 @@ public func runFree(
     workStartHour: Int = 9,
     workEndHour: Int = 18,
     calendars: [String] = [],
+    hiddenCalendars: [String] = [],
+    showAll: Bool = false,
     json: Bool = false,
+    color: Bool = false,
+    aligned: Bool = false,
     timeZone: TimeZone = .current
 ) -> String {
     let events = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    // Hide-list: a hidden calendar's events don't count as busy (consistent with
+    // it being excluded from listings) unless --all or an explicit --calendar.
+    let considered = (!showAll && calendars.isEmpty && !hiddenCalendars.isEmpty)
+        ? events.filter { !$0.matchesCalendar(hiddenCalendars) }
+        : events
     // Busy = anything not explicitly "free"; skip zero-length events.
-    let busy = events
+    let busy = considered
         .filter { $0.availability != "free" && $0.end > $0.start }
         .map { DateInterval(start: $0.start, end: $0.end) }
 
@@ -47,12 +56,16 @@ public func runFree(
         struct Slot: Encodable { let start: Date; let end: Date; let minutes: Int }
         return Output.ndjson(slots.map { Slot(start: $0.start, end: $0.end, minutes: Int($0.duration / 60)) })
     }
-    // Empty output for no slots, matching agenda/search (Output.tsv([]) == "") so
-    // scripts can treat empty as "no rows".
-    let rows = slots.map {
-        [Output.localISO($0.start, timeZone: timeZone), Output.localISO($0.end, timeZone: timeZone), "(\(durationText($0.duration)))"]
+    // Empty output for no slots, matching agenda/search (Output.table([]) == "") so
+    // scripts can treat empty as "no rows". Times are cyan like agenda/search.
+    let rows = slots.map { s -> [String] in
+        [
+            Output.paint(Output.localISO(s.start, timeZone: timeZone), .cyan, enabled: color),
+            Output.paint(Output.localISO(s.end, timeZone: timeZone), .cyan, enabled: color),
+            Output.paint("(\(durationText(s.duration)))", .dim, enabled: color),
+        ]
     }
-    return Output.tsv(rows)
+    return Output.table(rows, aligned: aligned)
 }
 
 /// Open sub-intervals of `workday` not covered by `busy`, each ≥ minDuration.
@@ -79,7 +92,9 @@ func freeGaps(in workday: DateInterval, busy: [DateInterval], minDuration: TimeI
 }
 
 private func durationText(_ t: TimeInterval) -> String {
-    let mins = Int(t / 60), h = mins / 60, m = mins % 60
+    let total = Int(t)
+    if total < 60 { return "\(total)s" }           // sub-minute slot: seconds, not "0m"
+    let mins = total / 60, h = mins / 60, m = mins % 60
     if h > 0, m > 0 { return "\(h)h\(m)m" }
     if h > 0 { return "\(h)h" }
     return "\(m)m"

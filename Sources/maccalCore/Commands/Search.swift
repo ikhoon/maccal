@@ -38,7 +38,10 @@ public func runSearch(
     max: Int = 10,
     countOnly: Bool = false,
     color: Bool = false,
+    aligned: Bool = false,
     hideCancelled: Bool = false,
+    hiddenCalendars: [String] = [],
+    showAll: Bool = false,
     now: Date,
     timeZone: TimeZone = .current
 ) throws -> String {
@@ -46,7 +49,11 @@ public func runSearch(
         from: from, to: to, now: now, timeZone: timeZone,
         defaultFromDays: -30, defaultSpanDays: 60
     )
-    let inWindow = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    var inWindow = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    // Hide-list: same rule as agenda — excluded unless --all or explicit --calendar.
+    if !showAll, calendars.isEmpty, !hiddenCalendars.isEmpty {
+        inWindow = inWindow.filter { !$0.matchesCalendar(hiddenCalendars) }
+    }
     let examined = inWindow.count
 
     // Empty query degenerates to "everything in window" (substring "" matches
@@ -58,30 +65,29 @@ public func runSearch(
 
     if json {
         let summary = SearchSummary(summary: .init(examined: examined, shown: shown.count, total: total))
-        return Output.ndjson(shown) + Output.jsonLine(summary)
+        return Output.eventsNDJSON(shown) + Output.jsonLine(summary)
     }
 
     if countOnly {
         return "total: \(total)\nexamined: \(examined)\n"
     }
 
+    if total > shown.count {
+        Output.warn("showing \(shown.count) of \(total) — narrow filters or raise --max")
+    }
     let multiCalendar = Set(shown.map(\.calendar)).count > 1
-    // Columns: when · [calendar] · title · id (human bits first, long id last).
+    // Columns: when · [calendar] · title · id (human bits first, id last, un-dimmed
+    // so the copy-into-edit/rm token stays legible on every theme).
     let rows = shown.map { ev -> [String] in
         let when = Output.paint(Output.when(ev, timeZone: timeZone), .cyan, enabled: color)
         let title = Output.sanitize(ev.title)
         // Recurring rows print an occurrence handle (id@epoch) so edit/rm can target one.
         let idStr = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
-        let id = Output.paint(idStr, .dim, enabled: color)
         return multiCalendar
-            ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, id]
-            : [when, title, id]
+            ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, idStr]
+            : [when, title, idStr]
     }
-    var out = Output.tsv(rows)
-    if total > shown.count {
-        out += "(showing \(shown.count) of \(total) — narrow filters if too many)\n"
-    }
-    return out
+    return Output.table(rows, aligned: aligned)
 }
 
 /// Case-insensitive substring match over the fields selected by `scope`.

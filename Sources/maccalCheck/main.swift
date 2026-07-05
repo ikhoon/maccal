@@ -38,8 +38,10 @@ do {
     c.expect(lines[0].hasPrefix("Work\tcorp@example.com\t"), "sorted row 0")
     c.expect(lines[1].hasPrefix("Personal\tme@gmail.com\t"), "sorted row 1")
     c.expect(lines[2].hasPrefix("Holidays\tSubscriptions\t"), "sorted row 2")
-    c.expect(lines[0].contains("\trw\t"), "writable column rw")
-    c.expect(lines[2].contains("\tro\t"), "read-only column ro")
+    // rw/ro is now the last column (the color swatch/hex column was dropped from
+    // text output; color, when on, is a leading dot only).
+    c.expect(lines[0].hasSuffix("\trw"), "writable column rw (last col)")
+    c.expect(lines[2].hasSuffix("\tro"), "read-only column ro (last col)")
 }
 
 do {
@@ -288,9 +290,10 @@ do {
     }
     let store5 = FakeCalendarStore(events: evs)
     let capped = try! runAgenda(store: store5, json: false, max: 3, now: kstNow, timeZone: kst)
-    c.expect(capped.contains("(showing 3 of 5 — narrow filters if too many)"), "trailer shows M of N when capped")
-    c.eq(capped.split(separator: "\n").filter { !$0.hasPrefix("(showing ") }.count, 3, "--max caps shown rows")
-    c.expect(!(try! runAgenda(store: store5, json: false, max: 10, now: kstNow, timeZone: kst)).contains("showing"), "no trailer when total <= max")
+    // The truncation notice now goes to stderr; stdout stays clean, parseable rows.
+    c.expect(!capped.contains("showing"), "truncation notice kept out of stdout")
+    c.eq(capped.split(separator: "\n").count, 3, "--max caps shown rows")
+    c.eq(try! runAgenda(store: store5, json: false, max: 10, now: kstNow, timeZone: kst).split(separator: "\n").count, 5, "all rows when total <= max")
 }
 
 do {
@@ -417,8 +420,9 @@ do {
     let store = FakeCalendarStore(events: evs)
 
     let text = try! runSearch(store: store, query: "meeting", json: false, max: 2, now: kstNow, timeZone: kst)
-    c.expect(text.contains("(showing 2 of 5 — narrow filters if too many)"), "search trailer reflects total vs shown")
-    let rows = text.split(separator: "\n").filter { !$0.hasPrefix("(showing ") }.map(String.init)
+    // Truncation notice → stderr; stdout is just the capped rows.
+    c.expect(!text.contains("showing"), "search truncation notice kept out of stdout")
+    let rows = text.split(separator: "\n").map(String.init)
     c.eq(rows.count, 2, "search --max caps shown rows")
     c.expect(rows[0].hasSuffix("\tm0") && rows[1].hasSuffix("\tm1"), "search results are soonest-first")
 
@@ -1763,6 +1767,159 @@ do {
         end: kstCal.date(bySettingHour: 18, minute: 0, second: 0, of: dayStart)!)
     c.eq(runFree(store: FakeCalendarStore(events: [booked]), window: win, minDuration: 3600, workStartHour: 9, workEndHour: 18, json: false, timeZone: kst),
          "", "a fully-booked day → empty text (scripting-friendly)")
+}
+
+// MARK: - output: display width + aligned table (Output.displayWidth / table)
+do {
+    c.eq(Output.displayWidth("abc"), 3, "ascii width = count")
+    c.eq(Output.displayWidth("대한민국"), 8, "Hangul counts 2 per char")
+    c.eq(Output.displayWidth("일본"), 4, "kanji counts 2 per char")
+    c.eq(Output.displayWidth("A가B"), 4, "mixed ascii(1)+CJK(2)")
+    c.eq(Output.displayWidth(Output.paint("hi", .red, enabled: true)), 2, "ANSI escapes are zero width")
+    c.eq(Output.displayWidth("é"), 1, "precomposed accent width 1")
+    c.eq(Output.displayWidth("e\u{0301}"), 1, "combining mark adds 0 width")
+    c.eq(Output.displayWidth("●"), 1, "swatch dot width 1")
+
+    // Aligned columns line up on DISPLAY width (CJK-aware), last cell unpadded.
+    let rows = [["가나", "A"], ["ab", "B"]]
+    let lines = Output.table(rows, aligned: true, gutter: 2).split(separator: "\n").map(String.init)
+    func prefixWidth(_ line: String, before cell: String) -> Int {
+        guard let r = line.range(of: cell, options: .backwards) else { return -1 }
+        return Output.displayWidth(String(line[line.startIndex..<r.lowerBound]))
+    }
+    c.eq(prefixWidth(lines[0], before: "A"), prefixWidth(lines[1], before: "B"), "columns align on display width")
+    c.eq(prefixWidth(lines[0], before: "A"), 6, "col0 width(4) + gutter(2)")
+    c.expect(!lines[0].hasSuffix(" "), "last cell is not right-padded")
+    c.eq(Output.table(rows, aligned: false), "가나\tA\nab\tB\n", "unaligned = raw TSV")
+    c.eq(Output.table([], aligned: true), "", "empty aligned table → empty")
+    c.eq(Output.table([], aligned: false), "", "empty tsv → empty")
+
+    c.eq(Output.colorDot("#FF0000"), "\u{001B}[38;2;255;0;0m●\u{001B}[0m", "colorDot → truecolor dot")
+    c.eq(Output.colorDot("bogus"), "●", "colorDot invalid hex → plain dot")
+}
+
+// MARK: - config (Config / ConfigLoader)
+do {
+    let empty = try! ConfigLoader.parse(Data("{}".utf8))
+    c.eq(empty.hiddenCalendars.count, 0, "empty config → no hidden")
+    c.expect(empty.defaultCalendar == nil, "empty config → no default calendar")
+
+    let partial = try! ConfigLoader.parse(Data(#"{"hiddenCalendars":["Birthdays","cal-xyz"],"unknownKey":42}"#.utf8))
+    c.eq(partial.hiddenCalendars.count, 2, "hiddenCalendars parsed; unknown key ignored")
+    c.expect(partial.isHidden(title: "birthdays", identifier: "zzz"), "isHidden matches title case-insensitively")
+    c.expect(partial.isHidden(title: "zzz", identifier: "CAL-XYZ"), "isHidden matches identifier case-insensitively")
+    c.expect(!partial.isHidden(title: "Work", identifier: "w"), "non-hidden calendar not matched")
+
+    let always = try! ConfigLoader.parse(Data(#"{"color":"always"}"#.utf8))
+    c.expect(always.useColor(isTTY: false, flagNoColor: false, envNoColor: false), "color=always → on even off-TTY")
+    c.expect(!always.useColor(isTTY: false, flagNoColor: true, envNoColor: false), "--no-color beats color=always")
+    c.expect(!always.useColor(isTTY: true, flagNoColor: false, envNoColor: true), "NO_COLOR beats color=always")
+    let never = try! ConfigLoader.parse(Data(#"{"color":"never"}"#.utf8))
+    c.expect(!never.useColor(isTTY: true, flagNoColor: false, envNoColor: false), "color=never → off even on TTY")
+    c.expect(Config().useColor(isTTY: true, flagNoColor: false, envNoColor: false), "auto → on for TTY")
+    c.expect(!Config().useColor(isTTY: false, flagNoColor: false, envNoColor: false), "auto → off off-TTY")
+
+    c.eq(ConfigLoader.path(environment: ["MACCAL_CONFIG": "/x/c.json"], home: "/h"), "/x/c.json", "MACCAL_CONFIG wins")
+    c.eq(ConfigLoader.path(environment: ["XDG_CONFIG_HOME": "/xdg"], home: "/h"), "/xdg/maccal/config.json", "XDG_CONFIG_HOME next")
+    c.eq(ConfigLoader.path(environment: [:], home: "/h"), "/h/.config/maccal/config.json", "default ~/.config/maccal")
+
+    var threw = false
+    do { _ = try ConfigLoader.parse(Data("not json".utf8)) } catch { threw = true }
+    c.expect(threw, "malformed config throws")
+    c.eq(try! ConfigLoader.load(path: "/nonexistent/maccal/config.json").hiddenCalendars.count, 0, "missing file → defaults, no throw")
+}
+
+// MARK: - hide-list (calendars / agenda / search / free)
+do {
+    let cals = FakeCalendarStore(calendars: [
+        .fixture(title: "Work", source: "corp", calendarIdentifier: "w"),
+        .fixture(title: "Birthdays", source: "Other", writable: false, calendarIdentifier: "b"),
+    ])
+    let visible = runCalendars(store: cals, json: false, hiddenCalendars: ["Birthdays"])
+    c.expect(!visible.contains("Birthdays"), "calendars hides hidden by title")
+    c.expect(visible.contains("Work"), "calendars keeps visible")
+    c.expect(runCalendars(store: cals, json: false, hiddenCalendars: ["Birthdays"], showAll: true).contains("Birthdays"), "--all shows hidden")
+    c.expect(!runCalendars(store: cals, json: false, hiddenCalendars: ["b"]).contains("Birthdays"), "calendars hides hidden by identifier")
+    c.expect(!runCalendars(store: cals, json: true, hiddenCalendars: ["Birthdays"]).contains("Birthdays"), "hide-list applies to --json too")
+
+    let evs = [
+        EventInfo.fixture(id: "e1", title: "Standup", calendar: "Work", calendarId: "w",
+                          start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour)),
+        EventInfo.fixture(id: "e2", title: "Bday", calendar: "Birthdays", calendarId: "b",
+                          start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour)),
+    ]
+    let es = FakeCalendarStore(events: evs)
+    let ag = try! runAgenda(store: es, json: false, hiddenCalendars: ["Birthdays"], now: kstNow, timeZone: kst)
+    c.expect(ag.contains("Standup") && !ag.contains("Bday"), "agenda excludes hidden-calendar events")
+    c.expect(try! runAgenda(store: es, json: false, hiddenCalendars: ["Birthdays"], showAll: true, now: kstNow, timeZone: kst).contains("Bday"), "agenda --all includes hidden")
+    c.expect(try! runAgenda(store: es, json: false, calendars: ["Birthdays"], hiddenCalendars: ["Birthdays"], now: kstNow, timeZone: kst).contains("Bday"), "explicit --calendar overrides hide-list")
+    let se = try! runSearch(store: es, query: "", json: false, hiddenCalendars: ["Birthdays"], now: kstNow, timeZone: kst)
+    c.expect(se.contains("Standup") && !se.contains("Bday"), "search excludes hidden-calendar events")
+}
+
+// MARK: - JSON handle parity (agenda/search/show gain a `handle`)
+do {
+    let start = agToday.addingTimeInterval(hour)
+    let rule = RecurrenceRule(frequency: .weekly, interval: 1, daysOfWeek: [2, 4])
+    let rec = EventInfo.fixture(id: "R1", title: "Weekly", calendar: "Work", start: start, end: start + 1800, recurring: true, recurrenceRule: rule)
+    let one = EventInfo.fixture(id: "S1", title: "Single", calendar: "Work", start: start, end: start + 1800)
+    let js = try! runAgenda(store: FakeCalendarStore(events: [rec, one]), json: true, now: kstNow, timeZone: kst)
+    let objs = js.split(separator: "\n").compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+    let byId = Dictionary(objs.map { ($0["id"] as! String, $0) }, uniquingKeysWith: { a, _ in a })
+    c.expect((byId["R1"]?["handle"] as? String) == Output.occurrenceHandle(id: "R1", start: start), "recurring json handle = id@epoch")
+    c.expect((byId["S1"]?["handle"] as? String) == "S1", "non-recurring json handle = id")
+    let txt = try! runAgenda(store: FakeCalendarStore(events: [rec]), json: false, now: kstNow, timeZone: kst)
+    c.expect(txt.contains(Output.occurrenceHandle(id: "R1", start: start)), "recurring text last column = id@epoch")
+}
+
+// MARK: - calendars color A-design (leading dot, hex dropped, sanitized)
+do {
+    let cals = FakeCalendarStore(calendars: [.fixture(title: "Work", source: "corp", color: "#4986E7")])
+    let colored = runCalendars(store: cals, json: false, color: true)
+    c.expect(colored.contains("\u{001B}[38;2;73;134;231m●"), "color on → leading truecolor dot")
+    c.expect(!colored.contains("#4986E7"), "hex removed from human output")
+    let plain = runCalendars(store: cals, json: false, color: false)
+    c.expect(!plain.contains("●") && !plain.contains("#4986E7"), "color off → no dot, no hex")
+    c.expect(runCalendars(store: cals, json: true).contains("#4986E7"), "json keeps the color hex")
+
+    let dirty = FakeCalendarStore(calendars: [.fixture(title: "Team\tPlans", source: "corp\nX")])
+    let dl = runCalendars(store: dirty, json: false).split(separator: "\n")
+    c.eq(dl.count, 1, "calendars: newline in a name doesn't split the row")
+    c.eq(dl[0].split(separator: "\t", omittingEmptySubsequences: false).count, 4, "calendars: tab in title doesn't add a column")
+}
+
+// MARK: - show fidelity (id, recurrence summary, all-day span, sanitize, json handle)
+do {
+    let start = agToday.addingTimeInterval(hour)
+    let rule = RecurrenceRule(frequency: .weekly, interval: 2, daysOfWeek: [2, 4])
+    let rec = EventInfo.fixture(id: "R9", title: "Sync", calendar: "Work", start: start, end: start + 1800, recurring: true, recurrenceRule: rule)
+    let store = FakeCalendarStore(events: [rec])
+    let out = runShow(store: store, id: "R9", json: false, timeZone: kst).output
+    c.expect(out.contains("Id:"), "show includes an Id row")
+    c.expect(out.contains(Output.occurrenceHandle(id: "R9", start: start)), "show Id = handle")
+    c.expect(out.contains("every 2 weeks on Mon, Wed"), "show renders recurrence summary")
+    c.expect(runShow(store: store, id: "R9", json: true, timeZone: kst).output.contains("\"handle\""), "show --json includes handle")
+
+    var adCal = Calendar(identifier: .gregorian); adCal.timeZone = kst
+    let d0 = adCal.startOfDay(for: agToday)
+    let allDay = EventInfo.fixture(id: "AD", title: "PTO", calendar: "Work", start: d0, end: adCal.date(byAdding: .day, value: 3, to: d0)!, allDay: true)
+    c.expect(runShow(store: FakeCalendarStore(events: [allDay]), id: "AD", json: false, timeZone: kst).output.contains("—"), "all-day multi-day shows a date range")
+
+    let dirty = EventInfo.fixture(id: "D", title: "X", calendar: "Work", start: start, end: start + 1800, location: "Room\n4F")
+    c.expect(runShow(store: FakeCalendarStore(events: [dirty]), id: "D", json: false, timeZone: kst).output.contains("Room 4F"), "show sanitizes a newline in location")
+}
+
+// MARK: - import --json
+do {
+    let draft = EventDraft(title: "Imported", start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour),
+                           allDay: false, calendar: "Work", timeZoneId: nil, location: "", notes: "", url: "", availability: "busy", recurrenceRule: nil)
+    let store = FakeCalendarStore(calendars: [.fixture(title: "Work")], defaultCalendar: .fixture(title: "Work"))
+    if case .dryRun(let s) = try! runImport(store: store, drafts: [draft], calendar: nil, json: true, dryRun: true, confirm: AutoYes(), timeZone: kst) {
+        c.expect(s.contains("\"action\":\"would-import\""), "import --json --dry-run emits plan JSON")
+    } else { c.expect(false, "import dry-run returns .dryRun") }
+    if case .wrote(let s) = try! runImport(store: store, drafts: [draft], calendar: nil, json: true, dryRun: false, confirm: AutoYes(), timeZone: kst) {
+        c.expect(s.contains("Imported") && s.contains("\"handle\""), "import --json echoes created events with handle")
+    } else { c.expect(false, "import returns .wrote") }
 }
 
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
