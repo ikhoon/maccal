@@ -62,9 +62,9 @@ public func runFree(
     // scripts can treat empty as "no rows". Times are cyan like agenda/search.
     let rows = slots.map { s -> [String] in
         [
-            Output.paint(Output.formatInstant(s.start, style: dateStyle, now: now, timeZone: timeZone), .cyan, enabled: color),
-            Output.paint(Output.formatInstant(s.end, style: dateStyle, now: now, timeZone: timeZone), .cyan, enabled: color),
-            Output.paint("(\(durationText(s.duration)))", .dim, enabled: color),
+            Output.formatInstant(s.start, style: dateStyle, now: now, timeZone: timeZone),
+            Output.formatInstant(s.end, style: dateStyle, now: now, timeZone: timeZone),
+            Output.paint("(\(durationText(s.duration)))", .muted, enabled: color),
         ]
     }
     return Output.table(rows, aligned: aligned)

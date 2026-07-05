@@ -87,7 +87,7 @@ public func runSearch(
         let handle = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
         let idStr = long ? handle : Output.shortId(handle)
         var row = multiCalendar
-            ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, idStr]
+            ? [when, Output.paint(Output.sanitize(ev.calendar), .muted, enabled: color), title, idStr]
             : [when, title, idStr]
         if color { row.insert(Output.colorDot(colorByCal[ev.calendarId] ?? ""), at: 0) }
         return row

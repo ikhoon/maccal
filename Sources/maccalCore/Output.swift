@@ -110,7 +110,16 @@ public enum Output {
     public static func displayWidth(_ s: String) -> Int {
         let plain = stripANSI(s)
         var w = 0
-        for scalar in plain.unicodeScalars { w += scalarWidth(scalar) }
+        var prevNarrow = false          // last scalar contributed width 1 (FE0F can upgrade it to 2)
+        for u in plain.unicodeScalars {
+            if u.value == 0xFE0F {       // emoji variation selector: force emoji (width-2) presentation
+                if prevNarrow { w += 1; prevNarrow = false }
+                continue
+            }
+            let cw = scalarWidth(u)
+            w += cw
+            prevNarrow = (cw == 1)
+        }
         return w
     }
 
@@ -126,13 +135,18 @@ public enum Output {
         default: break
         }
         if v == 0x200B || v == 0xFEFF { return 0 }
+        // Default emoji-presentation scalars render as width 2 (e.g. ✅ U+2705,
+        // which East-Asian-Width would otherwise call narrow). Covers the symbol/
+        // dingbat emoji in 0x2000–0x2BFF without widening their text-presentation
+        // siblings.
+        if u.properties.isEmojiPresentation { return 2 }
         // East-Asian Wide / Fullwidth ranges (Hangul, CJK, kana, fullwidth forms,
-        // common emoji blocks, CJK extensions).
+        // emoji planes, CJK extensions).
         let wide: [ClosedRange<UInt32>] = [
             0x1100...0x115F, 0x2E80...0x303E, 0x3041...0x33FF, 0x3400...0x4DBF,
             0x4E00...0x9FFF, 0xA000...0xA4CF, 0xAC00...0xD7A3, 0xF900...0xFAFF,
             0xFE10...0xFE19, 0xFE30...0xFE6F, 0xFF00...0xFF60, 0xFFE0...0xFFE6,
-            0x1F300...0x1FAFF, 0x20000...0x3FFFD,
+            0x1F000...0x1FAFF, 0x20000...0x3FFFD,
         ]
         for r in wide where r.contains(v) { return 2 }
         return 1
@@ -296,6 +310,9 @@ public enum Output {
         case reset = "\u{001B}[0m"
         case bold = "\u{001B}[1m"
         case dim = "\u{001B}[2m"
+        /// Secondary text — a fixed mid-gray (256-color 245) instead of SGR-dim,
+        /// which many terminals render too faint/dark. Readable on dark and light.
+        case muted = "\u{001B}[38;5;245m"
         case red = "\u{001B}[31m"
         case green = "\u{001B}[32m"
         case yellow = "\u{001B}[33m"
@@ -329,8 +346,18 @@ public enum Output {
     public static func colorDot(_ hex: String) -> String {
         let h = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
         guard h.count == 6, let v = Int(h, radix: 16) else { return "●" }
-        let r = (v >> 16) & 0xFF, g = (v >> 8) & 0xFF, b = v & 0xFF
+        let (r, g, b) = visible((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF)
         return "\u{001B}[38;2;\(r);\(g);\(b)m●\u{001B}[0m"
+    }
+
+    /// Raise a too-dark RGB toward a minimum brightness (preserving hue) so a
+    /// dark-colored calendar's dot stays visible on a dark terminal. Black → gray.
+    private static func visible(_ r: Int, _ g: Int, _ b: Int, floor: Int = 128) -> (Int, Int, Int) {
+        let m = max(r, g, b)
+        if m >= floor { return (r, g, b) }
+        if m == 0 { return (floor, floor, floor) }
+        let s = Double(floor) / Double(m)
+        return (Int((Double(r) * s).rounded()), Int((Double(g) * s).rounded()), Int((Double(b) * s).rounded()))
     }
 
     /// Strip ANSI escape codes — used before persisting a possibly-colorized

@@ -288,7 +288,7 @@ struct AgendaCommand: ParsableCommand {
         // --max flag > config.agendaMax > built-in 30.
         let effectiveMax = max ?? config.agendaMax ?? 30
         guard effectiveMax > 0 else {
-            FileHandle.standardError.write(Data("maccal: --max must be a positive integer\n".utf8))
+            FileHandle.standardError.write(Data("maccal: max must be a positive integer (--max or config.agendaMax)\n".utf8))
             throw ExitCode(1)
         }
         let store = EKEventStore()
@@ -347,7 +347,10 @@ struct ShowCommand: ParsableCommand {
         CalendarAccess.require(store: store)
         let ck = EKCalendarStore(store: store)
         let resolvedId = try resolveOrExit(id, store: ck)
-        let result = runShow(store: ck, id: resolvedId, json: json,
+        // A recurring occurrence handle (id@epoch) shows the series anchor — strip
+        // the @epoch so event(withIdentifier:) gets a bare id (like export does).
+        let seriesId = Output.parseOccurrenceHandle(resolvedId)?.id ?? resolvedId
+        let result = runShow(store: ck, id: seriesId, json: json,
                              color: resolveColor(config, noColor: noColor, json: json),
                              dateStyle: resolveDateStyle(config, iso: iso), now: Date(), timeZone: .current)
         guard result.found else {
@@ -423,7 +426,7 @@ struct SearchCommand: ParsableCommand {
         // --max flag > config.searchMax > built-in 10.
         let effectiveMax = max ?? config.searchMax ?? 10
         guard effectiveMax > 0 else {
-            FileHandle.standardError.write(Data("maccal: --max must be a positive integer\n".utf8))
+            FileHandle.standardError.write(Data("maccal: max must be a positive integer (--max or config.searchMax)\n".utf8))
             throw ExitCode(1)
         }
         let store = EKEventStore()

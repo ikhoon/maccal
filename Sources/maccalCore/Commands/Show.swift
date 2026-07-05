@@ -33,7 +33,7 @@ public func eventDetailText(_ e: EventInfo, timeZone: TimeZone, color: Bool = fa
     func row(_ label: String, _ value: String) {
         guard !value.isEmpty else { return }
         let paddedLabel = label.padding(toLength: 14, withPad: " ", startingAt: 0)
-        lines.append(Output.paint(paddedLabel, .dim, enabled: color) + Output.sanitize(value))
+        lines.append(Output.paint(paddedLabel, .muted, enabled: color) + Output.sanitize(value))
     }
 
     row("Id:", e.handle)                       // the token to copy into edit/rm/export

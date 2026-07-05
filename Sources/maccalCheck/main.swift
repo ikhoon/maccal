@@ -1689,9 +1689,9 @@ do {
     c.expect(calColor.contains("38;2;0;255;0"), "calendars color → truecolor swatch from hex")
     c.expect(!runCalendars(store: cstore, json: false, color: false).contains("\u{001B}["), "calendars color:false plain")
 
-    // show: dim labels.
+    // show: muted (mid-gray) labels — readable, not the too-dark SGR-dim.
     let shColor = runShow(store: store, id: "C1", json: false, color: true, timeZone: kst).output
-    c.expect(shColor.contains("\u{001B}[2m"), "show color → dim labels")
+    c.expect(shColor.contains("\u{001B}[38;5;245m"), "show color → muted labels")
     c.expect(!runShow(store: store, id: "C1", json: false, color: false, timeZone: kst).output.contains("\u{001B}["),
              "show color:false plain")
 }
@@ -2089,6 +2089,33 @@ do {
     c.expect(agc.contains(Output.shortId("EVENTIDLONG123")), "agenda shows the short id")
     c.expect(!agc.contains("EVENTIDLONG123"), "agenda hides the full id by default")
     c.expect(try! runAgenda(store: cals, json: false, long: true, now: kstNow, timeZone: kst).contains("EVENTIDLONG123"), "agenda --long shows the full id")
+}
+
+// MARK: - emoji width, dot brightness floor, show short-id of a recurring occurrence
+do {
+    // Emoji render width 2 (fixes ragged rows whose titles carry ✅ etc.).
+    c.eq(Output.displayWidth("✅"), 2, "emoji ✅ (U+2705) counts width 2")
+    c.eq(Output.displayWidth("a✅b"), 4, "ascii + emoji + ascii = 1+2+1")
+    c.eq(Output.displayWidth("▶"), 1, "text-presentation ▶ alone is width 1")
+    c.eq(Output.displayWidth("▶\u{FE0F}"), 2, "FE0F upgrades ▶ to emoji width 2")
+    c.eq(Output.displayWidth("✅\u{FE0F}"), 2, "already-emoji + FE0F stays width 2")
+
+    // A dark calendar color is brightened so its dot stays visible; bright is kept.
+    c.expect(!Output.colorDot("#000010").contains("38;2;0;0;16m"), "very dark dot is brightened, not left near-black")
+    c.expect(Output.colorDot("#4986E7").contains("38;2;73;134;231m"), "a bright-enough dot is unchanged")
+
+    // show <shortid> of a recurring occurrence resolves to the series anchor
+    // (the short id → id@epoch handle → stripped to the series id).
+    let rstart = agToday.addingTimeInterval(hour)
+    let rrec = EventInfo.fixture(id: "RSER", calendar: "W", start: rstart, end: rstart + 1800,
+                                 recurring: true, recurrenceRule: RecurrenceRule(frequency: .weekly))
+    let rstore = FakeCalendarStore(events: [rrec])
+    let handle = Output.occurrenceHandle(id: "RSER", start: rstart)
+    let resolved = try! resolveEventToken(Output.shortId(handle), store: rstore, now: kstNow, timeZone: kst)
+    c.eq(resolved, handle, "short id of a recurring occurrence resolves to its id@epoch handle")
+    let seriesId = Output.parseOccurrenceHandle(resolved)?.id ?? resolved
+    c.eq(seriesId, "RSER", "occurrence handle strips to the series id for show")
+    c.expect(runShow(store: rstore, id: seriesId, json: false, timeZone: kst).found, "show finds the series by the stripped id")
 }
 
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
