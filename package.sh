@@ -22,6 +22,12 @@ cd "$SCRIPT_DIR"
 
 IDENTIFIER="kr.ikhoon.maccalbar"
 VERSION="$(git describe --tags --always)"
+# Code-signing identity. Default "-" = ad-hoc (release / brew artifacts stay
+# cert-free and reproducible). Set MACCAL_SIGN_ID to a keychain codesigning
+# identity (e.g. a self-signed "ikhoon-dev") for LOCAL installs so the Calendar
+# (TCC) grant survives rebuilds — ad-hoc resigns with a new cdhash each build and
+# forces a re-`maccal auth` every time. Notarization is a separate, later step.
+SIGN_ID="${MACCAL_SIGN_ID:--}"
 INSTALL=0
 [ "${1:-}" = "--install" ] && INSTALL=1
 
@@ -79,18 +85,18 @@ cat > "${APP}/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-echo "package: codesigning bundled CLI + app…"
+echo "package: codesigning bundled CLI + app… (identity: ${SIGN_ID})"
 # Sign the nested CLI FIRST (nested code must be signed before its container),
 # and with the APP's identifier so TCC treats it as the same entity — the CLI
 # then shares the app's Calendar grant instead of prompting, which it cannot do
 # as a background launchd job. A distinct identifier here leaves it at TCC
 # auth_value 0 and EventKit hangs waiting for a prompt that never appears.
-codesign --sign - \
+codesign --sign "$SIGN_ID" \
   --identifier "$IDENTIFIER" \
   --entitlements "${SCRIPT_DIR}/maccal.entitlements" \
   --force --options runtime \
   "${MACOS_DIR}/maccal"
-codesign --sign - \
+codesign --sign "$SIGN_ID" \
   --identifier "$IDENTIFIER" \
   --entitlements "${SCRIPT_DIR}/maccal.entitlements" \
   --force --options runtime \
