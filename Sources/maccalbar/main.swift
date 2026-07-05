@@ -719,12 +719,16 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateIcon() {
         guard let b = statusItem.button else { return }
         // A calendar with a small sync badge at rest; while a sync is in flight,
-        // swap to the plain circular-arrows glyph and spin it.
+        // swap to the plain circular-arrows glyph, spin it, and tint it blue so
+        // the in-progress state is visible at a glance. contentTintColor keeps
+        // the image a template, so the tint reads on light and dark menu bars.
         if syncing {
             b.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "syncing…")
+            b.contentTintColor = .systemBlue
             startSpin(b)
         } else {
             b.image = Self.calendarSyncIcon()
+            b.contentTintColor = nil          // back to the standard menu-bar tint
             stopSpin(b)
         }
     }

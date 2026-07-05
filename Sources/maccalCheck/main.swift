@@ -2193,12 +2193,12 @@ do {
     c.eq(ev("o", url: "https://meet.google.com/xxx", notes: "https://zoom.us/j/1").meetingURL,
          "https://meet.google.com/xxx", "url field wins over notes")
 
-    // agenda: 📹 marker only in the aligned human table; pipe TSV keeps the raw title.
+    // agenda: 💻 marker only in the aligned human table; pipe TSV keeps the raw title.
     let zoomEv = ev("Z1", location: "https://zoom.us/j/5")
     let alignedOut = try! runAgenda(store: FakeCalendarStore(events: [zoomEv]), json: false, aligned: true, now: kstNow, timeZone: kst)
-    c.expect(alignedOut.contains("📹"), "aligned agenda marks an online meeting")
+    c.expect(alignedOut.contains("💻"), "aligned agenda marks an online meeting")
     let piped = try! runAgenda(store: FakeCalendarStore(events: [zoomEv]), json: false, aligned: false, now: kstNow, timeZone: kst)
-    c.expect(!piped.contains("📹"), "piped agenda keeps the raw title (no marker)")
+    c.expect(!piped.contains("💻"), "piped agenda keeps the raw title (no marker)")
 
     // show: Online row; --json: meetingUrl (and "" when absent).
     c.expect(runShow(store: FakeCalendarStore(events: [zoomEv]), id: "Z1", json: false, timeZone: kst).output.contains("Online:"),
