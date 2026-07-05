@@ -48,7 +48,7 @@ rather than your terminal.
   - Write: [`add`](#add) · [`edit`](#edit) · [`rm`](#rm) · [`sync`](#sync)
   - Interop: [`export` / `import`](#export--import) · Setup: [`auth`](#auth)
 - [Menu-bar sync app](#menu-bar-sync-app-maccalapp) — scheduled background sync
-- [Dates & durations](#dates--durations) · [Scripting with JSON](#scripting-with-json) · [Shell completion](#shell-completion)
+- [Dates & durations](#dates--durations) · [Configuration](#configuration) · [Scripting with JSON](#scripting-with-json) · [Shell completion](#shell-completion)
 - [Troubleshooting](#troubleshooting) · [How it works](#how-it-works) · [Privacy](#privacy) · [Requirements](#requirements) · [Development](#development)
 
 ---
@@ -193,19 +193,22 @@ selects by title **or** identifier (case-insensitive); write commands take
 
 ### `calendars`
 
-List the calendars maccal can see — use a title as a `--calendar` selector.
+List the calendars maccal can see — use a title as a `--calendar` selector. On a
+terminal the columns align (CJK-aware) and the leading `●` is each calendar's own
+color; piped or `--json` output stays plain and machine-parseable.
 
 ```console
 $ maccal calendars
-Work          you@example.com     caldav         rw   #FFCC00
-Personal      you@example.com     caldav         rw   #83D754
-Holidays      Subscriptions       subscription   ro   #16A765
+●  Work          you@example.com     caldav         rw
+●  Personal      you@example.com     caldav         rw
+●  Holidays      Subscriptions       subscription   ro
 ```
 
 ```bash
 maccal calendars --writable     # only calendars you can modify
 maccal calendars --source work  # filter by account (case-insensitive substring)
-maccal calendars --json         # full records (identifier, sourceType, color)
+maccal calendars --all          # include calendars hidden via config (hiddenCalendars)
+maccal calendars --json         # full records (identifier, sourceType, color hex)
 ```
 
 ---
@@ -562,11 +565,43 @@ math is DST-correct.
 
 ---
 
+## Configuration
+
+CLI defaults live in a JSON file — resolved from `$MACCAL_CONFIG`, else
+`$XDG_CONFIG_HOME/maccal/config.json`, else `~/.config/maccal/config.json`. It's
+optional: a missing file just means built-in defaults. Precedence is **flag > env
+> config file > built-in**, so an explicit flag always wins.
+
+```json
+{
+  "hiddenCalendars": ["Birthdays", "일본의 휴일", "cal-identifier-here"],
+  "defaultCalendar": "Work",
+  "color": "auto"
+}
+```
+
+| Key | Effect |
+|---|---|
+| `hiddenCalendars` | Calendars to hide by default from `calendars`, `agenda`, `search`, and `free`. Each entry matches a calendar **title or identifier** (case-insensitive). Reveal them with `--all`, or name one explicitly with `--calendar`. |
+| `defaultCalendar` | Target for `add` / `import` when `--calendar` is omitted. |
+| `color` | `auto` (color on a TTY only — the default), `always`, or `never`. `--no-color` and `NO_COLOR` still force it off. |
+
+> macOS/EventKit exposes no "calendar is hidden in Calendar.app" flag, so
+> `hiddenCalendars` is the way to keep unused calendars out of your listings.
+> `maccal calendars --json` prints each calendar's `identifier` for pinning.
+
+---
+
 ## Scripting with JSON
 
 Every command supports `--json` (NDJSON — one object per line). Dates are UTC
 ISO-8601 (`Z`) in JSON, local-with-offset in text. Every field is always present
 (empty values are `""` / `[]` / `false`), so `jq` never hits a missing key.
+
+Each event carries a **`handle`** — the exact token to pass to `show` / `edit` /
+`rm`. For a one-off it equals `.id`; for a recurring event it's `id@epoch`,
+pinning the single occurrence you saw. Use `.handle` (not `.id`) when scripting
+edits/deletes so you don't accidentally hit a whole series.
 
 ```bash
 # When + title of the next week's events
@@ -575,9 +610,10 @@ maccal agenda --json | jq -r '"\(.start)  \(.title)"'
 # How many events match, without pulling rows
 maccal search incident --count-only --json | jq '._summary.total'
 
-# Delete every event matching a phrase (skip the _summary line)
+# Delete every event matching a phrase (skip the _summary line);
+# .handle targets the exact occurrence, not the whole series
 maccal search "cancelled demo" --json \
-  | jq -r 'select(._summary | not) | .id' \
+  | jq -r 'select(._summary | not) | .handle' \
   | xargs -I{} maccal rm {} --yes
 ```
 
