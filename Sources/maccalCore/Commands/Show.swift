@@ -45,6 +45,7 @@ public func eventDetailText(_ e: EventInfo, timeZone: TimeZone, color: Bool = fa
     row("Calendar:", e.calendar)
     row("Location:", e.location)
     row("URL:", e.url)
+    row("Online:", e.meetingURL ?? "")   // the video-conference link, wherever it hid
     row("Organizer:", e.organizer)
     row("Status:", e.status)
     row("Availability:", e.availability)

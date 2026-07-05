@@ -7,7 +7,7 @@ Output "assets/demo-cli.gif"
 Set Shell "bash"
 Set FontSize 18
 Set Width 1080
-Set Height 640
+Set Height 720
 Set Padding 24
 Set Theme "Dracula"
 Set TypingSpeed 45ms
@@ -23,14 +23,14 @@ Type "maccal calendars"
 Enter
 Sleep 1.6s
 
-Type "maccal agenda --calendar Work"
-Enter
-Sleep 2s
-
-Type `maccal add "Lunch" --start "tomorrow 12:00" --duration 1h --calendar Personal --yes`
+Type "maccal agenda"
 Enter
 Sleep 2.2s
 
-Type "maccal search standup --count-only"
+Type "maccal show a1b2c3d"
 Enter
-Sleep 2s
+Sleep 2.4s
+
+Type "maccal free --duration 1h"
+Enter
+Sleep 2.2s

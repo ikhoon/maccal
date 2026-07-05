@@ -60,7 +60,10 @@ public func runAgenda(
     // for the full id).
     let rows = shown.map { ev -> [String] in
         let when = Output.when(ev, style: dateStyle, timeZone: timeZone, now: now)
-        let title = Output.paint(Output.sanitize(ev.title), .bold, enabled: color)
+        var title = Output.paint(Output.sanitize(ev.title), .bold, enabled: color)
+        // Online-meeting marker (Zoom/Meet/Teams… link found): human table only —
+        // a pipe's TSV keeps the raw title so scripts match exactly.
+        if aligned, ev.meetingURL != nil { title += " 💻" }
         // Recurring rows carry an occurrence handle (id@epoch) so edit/rm target one.
         let handle = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
         let idStr = Output.paint(long ? handle : Output.shortId(handle), .cyan, enabled: color)

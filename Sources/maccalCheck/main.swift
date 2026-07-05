@@ -2174,6 +2174,40 @@ do {
     c.expect(runShow(store: rstore, id: seriesId, json: false, timeZone: kst).found, "show finds the series by the stripped id")
 }
 
+// MARK: - online-meeting detection (Zoom/Meet/Teams links → marker, Online:, meetingUrl)
+do {
+    let s = agToday.addingTimeInterval(hour), e = agToday.addingTimeInterval(2 * hour)
+    func ev(_ id: String, url: String = "", location: String = "", notes: String = "") -> EventInfo {
+        .fixture(id: id, calendar: "W", start: s, end: e, location: location, notes: notes, url: url)
+    }
+    c.eq(ev("z", location: "https://company.zoom.us/j/91234?pwd=x").meetingURL,
+         "https://company.zoom.us/j/91234?pwd=x", "zoom link in location detected")
+    c.eq(ev("g", notes: "Join here: https://meet.google.com/abc-defg-hij.").meetingURL,
+         "https://meet.google.com/abc-defg-hij", "meet link in notes detected (trailing period trimmed)")
+    c.eq(ev("t", url: "https://teams.microsoft.com/l/meetup-join/xyz").meetingURL,
+         "https://teams.microsoft.com/l/meetup-join/xyz", "teams link in url detected")
+    c.expect(ev("h", notes: "<a href=\"https://ly.webex.com/meet/ikhun\">join</a>").meetingURL != nil, "webex link inside HTML notes detected")
+    c.expect(ev("n", notes: "see https://example.com/zoom-tips").meetingURL == nil, "a non-meeting URL is not matched")
+    c.expect(ev("p").meetingURL == nil, "no fields → no meeting link")
+    // Priority: url wins over notes.
+    c.eq(ev("o", url: "https://meet.google.com/xxx", notes: "https://zoom.us/j/1").meetingURL,
+         "https://meet.google.com/xxx", "url field wins over notes")
+
+    // agenda: 💻 marker only in the aligned human table; pipe TSV keeps the raw title.
+    let zoomEv = ev("Z1", location: "https://zoom.us/j/5")
+    let alignedOut = try! runAgenda(store: FakeCalendarStore(events: [zoomEv]), json: false, aligned: true, now: kstNow, timeZone: kst)
+    c.expect(alignedOut.contains("💻"), "aligned agenda marks an online meeting")
+    let piped = try! runAgenda(store: FakeCalendarStore(events: [zoomEv]), json: false, aligned: false, now: kstNow, timeZone: kst)
+    c.expect(!piped.contains("💻"), "piped agenda keeps the raw title (no marker)")
+
+    // show: Online row; --json: meetingUrl (and "" when absent).
+    c.expect(runShow(store: FakeCalendarStore(events: [zoomEv]), id: "Z1", json: false, timeZone: kst).output.contains("Online:"),
+             "show prints an Online: row for a meeting link")
+    let js = try! runAgenda(store: FakeCalendarStore(events: [zoomEv, ev("P1")]), json: true, now: kstNow, timeZone: kst)
+    c.expect(js.contains("\"meetingUrl\":\"https://zoom.us/j/5\""), "json carries meetingUrl")
+    c.expect(js.contains("\"meetingUrl\":\"\""), "json meetingUrl is \"\" when absent (schema-stable)")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

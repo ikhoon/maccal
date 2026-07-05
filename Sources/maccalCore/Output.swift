@@ -43,11 +43,14 @@ public enum Output {
     private struct EventEnvelope: Encodable {
         let event: EventInfo
         var handle: String { event.handle }
-        enum CodingKeys: String, CodingKey { case handle }
+        enum CodingKeys: String, CodingKey { case handle, meetingUrl }
         func encode(to encoder: Encoder) throws {
             try event.encode(to: encoder)                       // all EventInfo keys…
-            var c = encoder.container(keyedBy: CodingKeys.self) // …plus handle, merged
+            var c = encoder.container(keyedBy: CodingKeys.self) // …plus the derived fields, merged
             try c.encode(handle, forKey: .handle)
+            // "" when not an online meeting — every field always present, so jq
+            // never branches on a missing key.
+            try c.encode(event.meetingURL ?? "", forKey: .meetingUrl)
         }
     }
 
