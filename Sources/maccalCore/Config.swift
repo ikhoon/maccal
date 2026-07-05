@@ -37,11 +37,14 @@ public struct Config: Codable, Equatable, Sendable {
         color = try c.decodeIfPresent(String.self, forKey: .color)
     }
 
-    /// True when a calendar with this title/identifier is on the hide-list.
+    /// True when a calendar with this title/identifier is on the hide-list. Uses
+    /// the SAME folding as `--calendar` selection and `EventInfo.matchesCalendar`
+    /// (locale-aware for the title, plain for the ASCII identifier) so `calendars`
+    /// and agenda/search/free agree on the hidden set on every locale.
     public func isHidden(title: String, identifier: String) -> Bool {
         hiddenCalendars.contains {
-            $0.caseInsensitiveCompare(title) == .orderedSame
-                || $0.caseInsensitiveCompare(identifier) == .orderedSame
+            title.localizedCaseInsensitiveCompare($0) == .orderedSame
+                || identifier.caseInsensitiveCompare($0) == .orderedSame
         }
     }
 

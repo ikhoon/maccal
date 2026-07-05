@@ -1857,6 +1857,24 @@ do {
     c.expect(se.contains("Standup") && !se.contains("Bday"), "search excludes hidden-calendar events")
 }
 
+// MARK: - hide-list matcher parity (Config.isHidden ↔ EventInfo.matchesCalendar)
+do {
+    // Both matchers must fold case identically so `calendars` and agenda/search/free
+    // agree on the hidden set. Title = locale-aware, identifier = plain.
+    let cases: [(String, String, [String], Bool)] = [
+        ("Work", "w", ["work"], true),          // title match, case-insensitive
+        ("Work", "w", ["w"], true),             // identifier match
+        ("Work", "w", ["OTHER"], false),        // no match
+        ("대한민국의 휴일", "k", ["대한민국의 휴일"], true), // CJK title match
+    ]
+    for (t, i, h, want) in cases {
+        let byConfig = Config(hiddenCalendars: h).isHidden(title: t, identifier: i)
+        let byEvent = EventInfo.fixture(id: "e", calendar: t, calendarId: i, start: agToday, end: agToday.addingTimeInterval(hour)).matchesCalendar(h)
+        c.eq(byConfig, want, "isHidden(\(t)/\(i) in \(h)) == \(want)")
+        c.eq(byConfig, byEvent, "isHidden and matchesCalendar agree for \(t)/\(i) in \(h)")
+    }
+}
+
 // MARK: - JSON handle parity (agenda/search/show gain a `handle`)
 do {
     let start = agToday.addingTimeInterval(hour)

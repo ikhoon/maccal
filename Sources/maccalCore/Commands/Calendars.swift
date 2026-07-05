@@ -26,14 +26,11 @@ public func runCalendars(
     }
     // Hide-list (config.hiddenCalendars): drop calendars matched by title or
     // identifier unless `--all`. Applies to both text and JSON so scripts see the
-    // same visible set the human does.
+    // same visible set the human does. Routed through Config.isHidden — the one
+    // matcher — so folding matches agenda/search/free (matchesCalendar) exactly.
     if !showAll, !hiddenCalendars.isEmpty {
-        cals = cals.filter { c in
-            !hiddenCalendars.contains {
-                $0.caseInsensitiveCompare(c.title) == .orderedSame
-                    || $0.caseInsensitiveCompare(c.calendarIdentifier) == .orderedSame
-            }
-        }
+        let hide = Config(hiddenCalendars: hiddenCalendars)
+        cals = cals.filter { !hide.isHidden(title: $0.title, identifier: $0.calendarIdentifier) }
     }
     // Group by source, then title (case-insensitive) — the order you scan when
     // picking a calendar.
