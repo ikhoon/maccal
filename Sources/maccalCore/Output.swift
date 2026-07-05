@@ -181,7 +181,9 @@ public enum Output {
         sub("<li[^>]*>", "\n- ")                       // list item → bullet
         sub("<br\\s*/?>", "\n")                          // line break
         sub("</(p|div|ul|ol|li|tr|h[1-6])>", "\n")        // block close → newline
-        sub("<[^>]+>", "")                                // strip remaining tags
+        // Strip only real tags: '<' or '</' followed by a letter. A literal '<'
+        // in prose ("a < b", "5 < 10") isn't a tag, so its text is kept.
+        sub("</?[a-zA-Z][^>]*>", "")
         t = decodeEntities(t)
         sub("[ \\t]+\n", "\n")                            // trailing spaces per line
         sub("\n{3,}", "\n\n")                             // collapse blank runs

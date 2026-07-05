@@ -26,6 +26,19 @@ public func runImport(
             notes: d.notes, url: d.url, availability: d.availability, recurrenceRule: d.recurrenceRule)
     }
 
+    // Validate before previewing OR writing, so --dry-run and commit agree and a
+    // malformed VEVENT (end <= start, or an all-day span not on whole days) fails
+    // the whole batch up front rather than creating a degenerate event.
+    var vcal = Calendar(identifier: .gregorian); vcal.timeZone = timeZone
+    for d in resolved {
+        guard d.end > d.start else { throw WriteValidationError.endNotAfterStart }
+        if d.allDay {
+            guard vcal.startOfDay(for: d.start) == d.start, vcal.startOfDay(for: d.end) == d.end else {
+                throw WriteValidationError.allDayWithTime
+            }
+        }
+    }
+
     if dryRun {
         if json {
             struct Plan: Encodable { let action, title: String; let start, end: Date; let allDay: Bool; let calendar: String? }

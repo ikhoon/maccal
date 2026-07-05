@@ -218,7 +218,14 @@ public func runSync(
         let key = syncKey(srcId: src.id, start: src.start, recurring: src.recurring)
         sourceKeys.insert(key)
         let d = desiredDraft(src)
-        if let existing = syncedByKey[key] {
+        if let existingOcc = syncedByKey[key] {
+            // For a recurring copy, compare against its OWN anchor (the series
+            // master, resolved via event(id:)), not the earliest in-window
+            // occurrence stored in syncedByKey. The desired draft uses the source
+            // ANCHOR start/end, so comparing it to an occurrence start that sits
+            // later in the window never matches — the series would be "changed"
+            // (re-inviting attendees, never converging) on every run.
+            let existing = src.recurring ? (store.event(id: existingOcc.id) ?? existingOcc) : existingOcc
             if src.recurring { existingCopyId[src.id] = existing.id }
             if !upToDate(existing, d) {
                 // A recurring copy is written as the whole series (.futureEvents);

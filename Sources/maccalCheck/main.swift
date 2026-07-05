@@ -1940,6 +1940,85 @@ do {
     } else { c.expect(false, "import returns .wrote") }
 }
 
+// MARK: - bug-hunt regressions (correctness fixes)
+do {
+    // Multi-word date forms must parse as date-only for --start/--end (used to be
+    // mis-split at the first space into a bogus "time" and rejected).
+    for form in ["next monday", "last friday", "this wednesday", "next week", "in 3 days", "in 2 weeks", "friday"] {
+        let r = try? DateTime.parse(form, now: kstNow, timeZone: kst)
+        c.expect(r != nil && r!.isDateOnly, "DateTime.parse '\(form)' → date-only (not mis-split)")
+    }
+    // A multi-word date + clock splits at the LAST space.
+    if let r = try? DateTime.parse("next monday 14:30", now: kstNow, timeZone: kst) {
+        c.expect(!r.isDateOnly, "'next monday 14:30' is timed")
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = kst
+        let hm = cal.dateComponents([.hour, .minute], from: r.date)
+        c.expect(hm.hour == 14 && hm.minute == 30, "'next monday 14:30' clock = 14:30")
+    } else { c.expect(false, "'next monday 14:30' parses") }
+    c.expect((try? DateTime.parse("2026-07-01 09:00", now: kstNow, timeZone: kst))?.isDateOnly == false, "ISO date + space time is timed")
+    c.expect((try? DateTime.parse("2026-07-01", now: kstNow, timeZone: kst))?.isDateOnly == true, "ISO date only is date-only")
+}
+
+do {
+    // htmlToPlain must not eat real text between a literal '<' and the next '>'.
+    c.eq(Output.htmlToPlain("a < b and 5 < 10"), "a < b and 5 < 10", "literal '<' in prose is kept")
+    c.eq(Output.htmlToPlain("<p>Hi</p>"), "Hi", "real <p> tag stripped")
+    c.eq(Output.htmlToPlain("x <b>bold</b> y"), "x bold y", "real inline tag stripped")
+    c.expect(Output.htmlToPlain("if x < y then<br>z").contains("if x < y then"), "text before a lone '<' survives a real <br>")
+}
+
+do {
+    // ICS export: CR/CRLF/LF in a TEXT value all become the escaped \n (no raw CR).
+    let ev = EventInfo.fixture(id: "e", calendar: "W", start: agToday.addingTimeInterval(hour), end: agToday.addingTimeInterval(2 * hour), notes: "line1\r\nline2\rline3")
+    let ics = ICS.export(ev, now: agToday, timeZone: kst)
+    c.expect(ics.contains("DESCRIPTION:line1\\nline2\\nline3"), "escape normalizes CR/CRLF/LF to \\n")
+
+    // ICS import: a TZID floating stamp is read in THAT zone, not the reader's.
+    let text = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:x\r\nSUMMARY:TZ\r\nDTSTART;TZID=America/New_York:20260701T090000\r\nDTEND;TZID=America/New_York:20260701T100000\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    let drafts = ICS.parse(text, timeZone: kst)     // reader zone KST, but TZID says NY
+    c.eq(drafts.count, 1, "one VEVENT parsed")
+    if let d = drafts.first {
+        var nyCal = Calendar(identifier: .gregorian); nyCal.timeZone = TimeZone(identifier: "America/New_York")!
+        let hm = nyCal.dateComponents([.hour, .minute], from: d.start)
+        c.expect(hm.hour == 9 && hm.minute == 0, "TZID start read as 09:00 America/New_York, not KST")
+    }
+}
+
+do {
+    // Import rejects degenerate/invalid drafts before writing (dry-run parity).
+    let store = FakeCalendarStore(calendars: [.fixture(title: "W")], defaultCalendar: .fixture(title: "W"))
+    var vc = Calendar(identifier: .gregorian); vc.timeZone = kst
+    let d0 = vc.startOfDay(for: agToday)
+    func imports(_ d: EventDraft) -> Bool {
+        do { _ = try runImport(store: store, drafts: [d], calendar: nil, json: false, dryRun: true, confirm: AutoYes(), timeZone: kst); return true }
+        catch { return false }
+    }
+    let endBeforeStart = EventDraft(title: "X", start: d0.addingTimeInterval(2 * hour), end: d0.addingTimeInterval(hour), allDay: false, calendar: "W", timeZoneId: nil, location: "", notes: "", url: "", availability: "busy", recurrenceRule: nil)
+    c.expect(!imports(endBeforeStart), "import rejects end <= start")
+    let allDayNotWhole = EventDraft(title: "X", start: d0.addingTimeInterval(hour), end: vc.date(byAdding: .day, value: 1, to: d0)!, allDay: true, calendar: "W", timeZoneId: nil, location: "", notes: "", url: "", availability: "busy", recurrenceRule: nil)
+    c.expect(!imports(allDayNotWhole), "import rejects an all-day span not on whole days")
+    let good = EventDraft(title: "X", start: d0, end: vc.date(byAdding: .day, value: 1, to: d0)!, allDay: true, calendar: "W", timeZoneId: nil, location: "", notes: "", url: "", availability: "busy", recurrenceRule: nil)
+    c.expect(imports(good), "import accepts a whole-day all-day event")
+}
+
+do {
+    // Edit: a sub-day --duration on an all-day event is rejected, not silently snapped.
+    var vc = Calendar(identifier: .gregorian); vc.timeZone = kst
+    let d0 = vc.startOfDay(for: agToday)
+    let allDay = EventInfo.fixture(id: "AD", calendar: "W", start: d0, end: vc.date(byAdding: .day, value: 2, to: d0)!, allDay: true)
+    let store = FakeCalendarStore(events: [allDay])
+    func edits(duration: String?) -> Bool {
+        do {
+            _ = try runEdit(store: store, id: "AD", title: nil, start: nil, end: nil, duration: duration, tz: nil,
+                            location: nil, notes: nil, url: nil, availability: nil, calendar: nil,
+                            allOccurrences: false, json: false, dryRun: true, confirm: AutoYes(), now: kstNow, timeZone: kst)
+            return true
+        } catch { return false }
+    }
+    c.expect(!edits(duration: "90m"), "edit all-day rejects a sub-day --duration")
+    c.expect(edits(duration: "2d"), "edit all-day accepts a whole-day --duration")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

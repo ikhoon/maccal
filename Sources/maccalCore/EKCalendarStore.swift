@@ -276,7 +276,12 @@ public final class EKCalendarStore: CalendarStore {
             start: start,
             end: ev.endDate ?? start,
             allDay: ev.isAllDay,
-            timeZone: ev.timeZone?.identifier ?? "",
+            // All-day events are floating: force "" to match the write-side
+            // invariant (createEvent/updateEvent nil the zone) and the documented
+            // EventInfo.timeZone contract. EventKit often reports a stored zone on
+            // all-day events synced from CalDAV/Google/Exchange; leaving it in
+            // breaks sync convergence (upToDate expects "") and the --json schema.
+            timeZone: ev.isAllDay ? "" : (ev.timeZone?.identifier ?? ""),
             location: ev.location ?? "",
             notes: ev.notes ?? "",
             url: ev.url?.absoluteString ?? "",
