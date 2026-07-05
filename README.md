@@ -225,12 +225,9 @@ app **and** the CLI:
 $ brew install --cask ikhoon/tap/maccal-app
 ```
 
-The app bundles its own copy of the `maccal` CLI, signed with the app's
-identity, so background sync shares the app's Calendar permission and never
-stalls on a dialog. Full flags (`--since`/`--until` windows, `--notes`,
-`--no-delete`, `Account/*` selectors) are in the [`sync` reference](#sync);
-settings and menu toggles are in the
-[menu-bar app reference](#menu-bar-app-reference).
+Full flags (`--since`/`--until` windows, `--notes`, `--no-delete`, `Account/*`
+selectors) are in the [`sync` reference](#sync); settings and menu toggles are in
+the [menu-bar app reference](#menu-bar-app-reference).
 
 ---
 
