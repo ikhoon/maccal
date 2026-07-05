@@ -117,8 +117,14 @@ if [ "$INSTALL" = "1" ]; then
   pkill -x maccalbar 2>/dev/null || true
   rm -rf /Applications/maccal.app
   ditto "$APP" /Applications/maccal.app
+  # Expose the bundled (signed) CLI on PATH at ~/.local/bin for testing the dev
+  # build — kept separate from any brew-installed release under the brew prefix.
+  # Symlink (not copy) so the CLI keeps the app's signature/TCC grant.
+  BINDIR="${HOME}/.local/bin"
+  mkdir -p "$BINDIR"
+  ln -sf /Applications/maccal.app/Contents/MacOS/maccal "$BINDIR/maccal"
   open /Applications/maccal.app
-  echo "package: installed → /Applications/maccal.app (v${VERSION#v}) and relaunched."
+  echo "package: installed → /Applications/maccal.app (v${VERSION#v}), symlinked ${BINDIR}/maccal, relaunched."
 else
   echo "Next:"
   echo "  • Install + relaunch locally:  ./package.sh --install"
