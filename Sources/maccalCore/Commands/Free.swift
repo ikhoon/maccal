@@ -19,6 +19,8 @@ public func runFree(
     json: Bool = false,
     color: Bool = false,
     aligned: Bool = false,
+    dateStyle: Output.DateStyle = .iso,
+    now: Date = Date(),
     timeZone: TimeZone = .current
 ) -> String {
     let events = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
@@ -60,8 +62,8 @@ public func runFree(
     // scripts can treat empty as "no rows". Times are cyan like agenda/search.
     let rows = slots.map { s -> [String] in
         [
-            Output.paint(Output.localISO(s.start, timeZone: timeZone), .cyan, enabled: color),
-            Output.paint(Output.localISO(s.end, timeZone: timeZone), .cyan, enabled: color),
+            Output.paint(Output.formatInstant(s.start, style: dateStyle, now: now, timeZone: timeZone), .cyan, enabled: color),
+            Output.paint(Output.formatInstant(s.end, style: dateStyle, now: now, timeZone: timeZone), .cyan, enabled: color),
             Output.paint("(\(durationText(s.duration)))", .dim, enabled: color),
         ]
     }

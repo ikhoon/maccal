@@ -2023,6 +2023,35 @@ do {
     c.expect(edits(duration: "2d"), "edit all-day accepts a whole-day --duration")
 }
 
+// MARK: - date styles + max config
+do {
+    var fc = Calendar(identifier: .gregorian); fc.timeZone = kst
+    let d = fc.date(from: DateComponents(year: 2026, month: 7, day: 6, hour: 9, minute: 30))!
+    let sameYear = fc.date(from: DateComponents(year: 2026, month: 1, day: 1))!
+    let otherYear = fc.date(from: DateComponents(year: 2025, month: 1, day: 1))!
+    c.eq(Output.formatInstant(d, style: .iso, timeZone: kst), "2026-07-06T09:30:00+09:00", "iso style unchanged")
+    c.eq(Output.formatInstant(d, style: .readable, timeZone: kst), "2026-07-06 09:30", "readable = date + HH:MM")
+    c.expect(Output.formatInstant(d, style: .friendly, now: sameYear, timeZone: kst).hasSuffix("Jul 6 09:30"), "friendly ends 'Jul 6 09:30'")
+    c.eq(Output.formatInstant(d, style: .compact, now: sameYear, timeZone: kst), "Jul 6 09:30", "compact omits year within now's year")
+    c.eq(Output.formatInstant(d, style: .compact, now: otherYear, timeZone: kst), "Jul 6 2026 09:30", "compact shows year across years")
+    let day = fc.date(from: DateComponents(year: 2026, month: 8, day: 1))!
+    c.eq(Output.formatDay(day, style: .readable, timeZone: kst), "2026-08-01", "readable all-day = plain date")
+    c.eq(Output.formatDay(day, style: .compact, now: sameYear, timeZone: kst), "Aug 1", "compact all-day = month day")
+
+    // agenda renders in the chosen style (window anchored so the event is in range)
+    let ev = EventInfo.fixture(id: "S", calendar: "W", start: d, end: d.addingTimeInterval(1800))
+    let ag = try! runAgenda(store: FakeCalendarStore(events: [ev]), json: false, dateStyle: .readable, now: fc.startOfDay(for: d), timeZone: kst)
+    c.expect(ag.contains("2026-07-06 09:30") && !ag.contains("T09:30"), "agenda readable style in rows, no ISO 'T'")
+
+    // config keys parse and are optional
+    let cfg = try! ConfigLoader.parse(Data(#"{"dateFormat":"friendly","agendaMax":50,"searchMax":5}"#.utf8))
+    c.eq(cfg.dateFormat, "friendly", "dateFormat parsed")
+    c.eq(cfg.agendaMax, 50, "agendaMax parsed")
+    c.eq(cfg.searchMax, 5, "searchMax parsed")
+    let empty = try! ConfigLoader.parse(Data("{}".utf8))
+    c.expect(empty.dateFormat == nil && empty.agendaMax == nil && empty.searchMax == nil, "new config keys default nil")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

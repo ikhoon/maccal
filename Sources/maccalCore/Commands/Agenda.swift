@@ -20,6 +20,7 @@ public func runAgenda(
     max: Int = 20,
     color: Bool = false,
     aligned: Bool = false,
+    dateStyle: Output.DateStyle = .iso,
     hideCancelled: Bool = false,
     hiddenCalendars: [String] = [],
     showAll: Bool = false,
@@ -54,7 +55,7 @@ public func runAgenda(
     // load-bearing token you copy into show/edit/rm, and SGR-dim can be invisible
     // on some themes.
     let rows = shown.map { ev -> [String] in
-        let when = Output.paint(Output.when(ev, timeZone: timeZone), .cyan, enabled: color)
+        let when = Output.paint(Output.when(ev, style: dateStyle, timeZone: timeZone, now: now), .cyan, enabled: color)
         let title = Output.sanitize(ev.title)
         // Recurring rows print an occurrence handle (id@epoch) so edit/rm can target one.
         let idStr = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id

@@ -163,8 +163,56 @@ public enum Output {
 
     /// The `when` cell for an event row: a bare local date for all-day events,
     /// local ISO-8601 with offset otherwise.
-    public static func when(_ event: EventInfo, timeZone tz: TimeZone = .current) -> String {
-        event.allDay ? localDate(event.start, timeZone: tz) : localISO(event.start, timeZone: tz)
+    public static func when(_ event: EventInfo, style: DateStyle = .iso, timeZone tz: TimeZone = .current, now: Date = Date()) -> String {
+        event.allDay ? formatDay(event.start, style: style, now: now, timeZone: tz)
+                     : formatInstant(event.start, style: style, now: now, timeZone: tz)
+    }
+
+    /// Human date styles for TEXT output. Pipes and `--json` always stay ISO/UTC
+    /// (machine contract); only an interactive TTY uses a readable style.
+    ///   iso      → 2026-07-06T09:30:00+09:00   (local, with offset — the machine form)
+    ///   readable → 2026-07-06 09:30            (default: date + HH:MM, no seconds/offset)
+    ///   friendly → Mon Jul 6 09:30             (weekday + month name)
+    ///   compact  → Jul 6 09:30                 (month name + day; year added when not `now`'s year)
+    public enum DateStyle: String, Sendable, CaseIterable { case iso, readable, friendly, compact }
+
+    private static let monthAbbr = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    private static let weekdayAbbr = ["", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+    /// A timed instant in the given style. `now` only affects `compact`'s year.
+    public static func formatInstant(_ d: Date, style: DateStyle, now: Date = Date(), timeZone tz: TimeZone = .current) -> String {
+        switch style {
+        case .iso: return localISO(d, timeZone: tz)
+        case .readable: return "\(localDate(d, timeZone: tz)) \(hhmm(d, tz))"
+        case .friendly: return "\(weekdayName(d, tz)) \(monthDay(d, tz, now: now)) \(hhmm(d, tz))"
+        case .compact: return "\(monthDay(d, tz, now: now)) \(hhmm(d, tz))"
+        }
+    }
+
+    /// An all-day date (no clock) in the given style.
+    public static func formatDay(_ d: Date, style: DateStyle, now: Date = Date(), timeZone tz: TimeZone = .current) -> String {
+        switch style {
+        case .iso, .readable: return localDate(d, timeZone: tz)          // 2026-07-06
+        case .friendly: return "\(weekdayName(d, tz)) \(monthDay(d, tz, now: now))"
+        case .compact: return monthDay(d, tz, now: now)
+        }
+    }
+
+    private static func comps(_ d: Date, _ tz: TimeZone) -> DateComponents {
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = tz
+        return cal.dateComponents([.year, .month, .day, .hour, .minute, .weekday], from: d)
+    }
+    private static func hhmm(_ d: Date, _ tz: TimeZone) -> String {
+        let c = comps(d, tz); return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+    }
+    private static func weekdayName(_ d: Date, _ tz: TimeZone) -> String {
+        weekdayAbbr[comps(d, tz).weekday ?? 0]
+    }
+    /// `Jul 6`, plus ` 2027` when the date's year differs from `now`'s.
+    private static func monthDay(_ d: Date, _ tz: TimeZone, now: Date) -> String {
+        let c = comps(d, tz)
+        let base = "\(monthAbbr[c.month ?? 0]) \(c.day ?? 0)"
+        return (c.year ?? 0) == (comps(now, tz).year ?? 0) ? base : "\(base) \(c.year ?? 0)"
     }
 
     /// Best-effort HTML → plain text for event notes (Google/Exchange store rich

@@ -39,6 +39,7 @@ public func runSearch(
     countOnly: Bool = false,
     color: Bool = false,
     aligned: Bool = false,
+    dateStyle: Output.DateStyle = .iso,
     hideCancelled: Bool = false,
     hiddenCalendars: [String] = [],
     showAll: Bool = false,
@@ -79,7 +80,7 @@ public func runSearch(
     // Columns: when · [calendar] · title · id (human bits first, id last, un-dimmed
     // so the copy-into-edit/rm token stays legible on every theme).
     let rows = shown.map { ev -> [String] in
-        let when = Output.paint(Output.when(ev, timeZone: timeZone), .cyan, enabled: color)
+        let when = Output.paint(Output.when(ev, style: dateStyle, timeZone: timeZone, now: now), .cyan, enabled: color)
         let title = Output.sanitize(ev.title)
         // Recurring rows print an occurrence handle (id@epoch) so edit/rm can target one.
         let idStr = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id

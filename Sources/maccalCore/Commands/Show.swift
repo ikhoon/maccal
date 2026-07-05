@@ -14,10 +14,12 @@ public func runShow(
     id: String,
     json: Bool,
     color: Bool = false,
+    dateStyle: Output.DateStyle = .iso,
+    now: Date = Date(),
     timeZone: TimeZone = .current
 ) -> (output: String, found: Bool) {
     guard let event = store.event(id: id) else { return ("", false) }
-    return (json ? Output.eventLine(event) : eventDetailText(event, timeZone: timeZone, color: color), true)
+    return (json ? Output.eventLine(event) : eventDetailText(event, timeZone: timeZone, color: color, dateStyle: dateStyle, now: now), true)
 }
 
 /// A vertically labeled block: core fields, then attendees, then the full notes
@@ -25,7 +27,8 @@ public func runShow(
 /// Shared by `show` and the write commands' previews/echoes. Every single-line
 /// value is sanitized so a stray newline in a field can't inject a fake label
 /// line; the notes body (below the blank line) keeps its real line breaks.
-public func eventDetailText(_ e: EventInfo, timeZone: TimeZone, color: Bool = false) -> String {
+public func eventDetailText(_ e: EventInfo, timeZone: TimeZone, color: Bool = false,
+                            dateStyle: Output.DateStyle = .iso, now: Date = Date()) -> String {
     var lines: [String] = []
     func row(_ label: String, _ value: String) {
         guard !value.isEmpty else { return }
@@ -35,7 +38,7 @@ public func eventDetailText(_ e: EventInfo, timeZone: TimeZone, color: Bool = fa
 
     row("Id:", e.handle)                       // the token to copy into edit/rm/export
     row("Title:", e.title)
-    row("When:", whenDetail(e, timeZone: timeZone))
+    row("When:", whenDetail(e, style: dateStyle, now: now, timeZone: timeZone))
     row("All-day:", e.allDay ? "yes" : "")
     row("Calendar:", e.calendar)
     row("Location:", e.location)
@@ -66,16 +69,16 @@ public func eventDetailText(_ e: EventInfo, timeZone: TimeZone, color: Bool = fa
 /// The `When:` value. Timed → `start — end`. All-day single day → the date;
 /// all-day spanning multiple days → `firstDay — lastDay` (the exclusive end
 /// midnight is rolled back to the inclusive last day so humans see the real span).
-func whenDetail(_ e: EventInfo, timeZone: TimeZone) -> String {
+func whenDetail(_ e: EventInfo, style: Output.DateStyle, now: Date, timeZone: TimeZone) -> String {
     if !e.allDay {
-        return "\(Output.localISO(e.start, timeZone: timeZone)) — \(Output.localISO(e.end, timeZone: timeZone))"
+        return "\(Output.formatInstant(e.start, style: style, now: now, timeZone: timeZone)) — \(Output.formatInstant(e.end, style: style, now: now, timeZone: timeZone))"
     }
     var cal = Calendar(identifier: .gregorian); cal.timeZone = timeZone
-    let startDay = Output.localDate(e.start, timeZone: timeZone)
+    let startDay = Output.formatDay(e.start, style: style, now: now, timeZone: timeZone)
     guard let lastMidnight = cal.date(byAdding: .day, value: -1, to: e.end), lastMidnight > e.start else {
         return startDay                                      // single all-day
     }
-    return "\(startDay) — \(Output.localDate(lastMidnight, timeZone: timeZone))"
+    return "\(startDay) — \(Output.formatDay(lastMidnight, style: style, now: now, timeZone: timeZone))"
 }
 
 /// A compact human summary of a recurrence rule, e.g. "weekly on Mon, Wed until

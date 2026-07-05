@@ -576,7 +576,10 @@ optional: a missing file just means built-in defaults. Precedence is **flag > en
 {
   "hiddenCalendars": ["Birthdays", "일본의 휴일", "cal-identifier-here"],
   "defaultCalendar": "Work",
-  "color": "auto"
+  "color": "auto",
+  "dateFormat": "readable",
+  "agendaMax": 30,
+  "searchMax": 10
 }
 ```
 
@@ -585,6 +588,8 @@ optional: a missing file just means built-in defaults. Precedence is **flag > en
 | `hiddenCalendars` | Calendars to hide by default from `calendars`, `agenda`, `search`, and `free`. Each entry matches a calendar **title or identifier** (case-insensitive). Reveal them with `--all`, or name one explicitly with `--calendar`. |
 | `defaultCalendar` | Target for `add` / `import` when `--calendar` is omitted. |
 | `color` | `auto` (color on a TTY only — the default), `always`, or `never`. `--no-color` and `NO_COLOR` still force it off. |
+| `dateFormat` | Human date style: `readable` (`2026-07-06 09:30`, the default), `iso` (`2026-07-06T09:30:00+09:00`), `friendly` (`Mon Jul 6 09:30`), or `compact` (`Jul 6 09:30`). **Piped and `--json` output always stay ISO/UTC** so scripts are unaffected; `--iso` forces ISO for one run. |
+| `agendaMax` / `searchMax` | Default row cap for `agenda` (built-in 30) / `search` (built-in 10) when `--max` is omitted. |
 
 > macOS/EventKit exposes no "calendar is hidden in Calendar.app" flag, so
 > `hiddenCalendars` is the way to keep unused calendars out of your listings.

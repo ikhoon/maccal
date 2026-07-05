@@ -21,11 +21,22 @@ public struct Config: Codable, Equatable, Sendable {
     public var defaultCalendar: String?
     /// Color mode: "auto" (color on a TTY only — the default), "always", "never".
     public var color: String?
+    /// Human date style for text output: "readable" (default) | "iso" | "friendly"
+    /// | "compact". Piped and `--json` output stay ISO/UTC regardless.
+    public var dateFormat: String?
+    /// Default row cap for `agenda` when `--max` is omitted (built-in 30).
+    public var agendaMax: Int?
+    /// Default row cap for `search` when `--max` is omitted (built-in 10).
+    public var searchMax: Int?
 
-    public init(hiddenCalendars: [String] = [], defaultCalendar: String? = nil, color: String? = nil) {
+    public init(hiddenCalendars: [String] = [], defaultCalendar: String? = nil, color: String? = nil,
+                dateFormat: String? = nil, agendaMax: Int? = nil, searchMax: Int? = nil) {
         self.hiddenCalendars = hiddenCalendars
         self.defaultCalendar = defaultCalendar
         self.color = color
+        self.dateFormat = dateFormat
+        self.agendaMax = agendaMax
+        self.searchMax = searchMax
     }
 
     // Custom decode so every key is optional: a file with only `hiddenCalendars`
@@ -35,6 +46,9 @@ public struct Config: Codable, Equatable, Sendable {
         hiddenCalendars = try c.decodeIfPresent([String].self, forKey: .hiddenCalendars) ?? []
         defaultCalendar = try c.decodeIfPresent(String.self, forKey: .defaultCalendar)
         color = try c.decodeIfPresent(String.self, forKey: .color)
+        dateFormat = try c.decodeIfPresent(String.self, forKey: .dateFormat)
+        agendaMax = try c.decodeIfPresent(Int.self, forKey: .agendaMax)
+        searchMax = try c.decodeIfPresent(Int.self, forKey: .searchMax)
     }
 
     /// True when a calendar with this title/identifier is on the hide-list. Uses
