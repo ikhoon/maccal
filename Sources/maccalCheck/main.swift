@@ -2098,6 +2098,30 @@ do {
     c.expect(try! runAgenda(store: cals, json: false, long: true, now: kstNow, timeZone: kst).contains("EVENTIDLONG123"), "agenda --long shows the full id")
 }
 
+// MARK: - when ranges (end time + all-day marker in human styles; ISO stays start-only)
+do {
+    var wc = Calendar(identifier: .gregorian); wc.timeZone = kst
+    let s = wc.date(from: DateComponents(year: 2026, month: 7, day: 6, hour: 9, minute: 30))!
+    let timed = EventInfo.fixture(id: "t", calendar: "W", start: s, end: s.addingTimeInterval(5400))
+    c.eq(Output.when(timed, style: .readable, timeZone: kst, now: s), "2026-07-06 09:30–11:00", "readable timed shows start–end clock")
+    c.eq(Output.when(timed, style: .iso, timeZone: kst, now: s), "2026-07-06T09:30:00+09:00", "iso stays start-only (pipe contract)")
+
+    let crossDay = EventInfo.fixture(id: "x", calendar: "W", start: wc.date(bySettingHour: 23, minute: 0, second: 0, of: s)!,
+                                     end: wc.date(byAdding: .hour, value: 2, to: wc.date(bySettingHour: 23, minute: 0, second: 0, of: s)!)!)
+    c.expect(Output.when(crossDay, style: .readable, timeZone: kst, now: s).contains("–2026-07-07 01:00"), "cross-day timed shows the end date")
+
+    let d0 = wc.startOfDay(for: s)
+    let oneDay = EventInfo.fixture(id: "a", calendar: "W", start: d0, end: wc.date(byAdding: .day, value: 1, to: d0)!, allDay: true)
+    c.eq(Output.when(oneDay, style: .readable, timeZone: kst, now: s), "2026-07-06 all-day", "single all-day gets the all-day marker")
+    c.eq(Output.when(oneDay, style: .iso, timeZone: kst, now: s), "2026-07-06", "iso all-day stays a bare date")
+
+    let multiDay = EventInfo.fixture(id: "m", calendar: "W", start: d0, end: wc.date(byAdding: .day, value: 3, to: d0)!, allDay: true)
+    c.eq(Output.when(multiDay, style: .readable, timeZone: kst, now: s), "2026-07-06–2026-07-08", "multi-day all-day shows the inclusive date range")
+
+    let instant = EventInfo.fixture(id: "z", calendar: "W", start: s, end: s)
+    c.eq(Output.when(instant, style: .readable, timeZone: kst, now: s), "2026-07-06 09:30", "zero-length event shows start only")
+}
+
 // MARK: - emoji width, dot brightness floor, show short-id of a recurring occurrence
 do {
     // Emoji render width 2 (fixes ragged rows whose titles carry ✅ etc.).

@@ -223,8 +223,9 @@ id). The `calendar` column appears only when results span more than one.
 
 ```console
 $ maccal agenda --from today --to +1d
-●  2026-06-23 10:30   Standup         a1b2c3d
-●  2026-06-23 14:00   Design review   9f4e2a1
+●  2026-06-23 10:30–11:00   Standup         a1b2c3d
+●  2026-06-23 14:00–15:30   Design review   9f4e2a1
+●  2026-06-23 all-day       Team offsite    77e1c09
 ```
 
 ```bash

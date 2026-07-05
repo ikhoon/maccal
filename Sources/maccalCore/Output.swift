@@ -179,8 +179,27 @@ public enum Output {
     /// The `when` cell for an event row: a bare local date for all-day events,
     /// local ISO-8601 with offset otherwise.
     public static func when(_ event: EventInfo, style: DateStyle = .iso, timeZone tz: TimeZone = .current, now: Date = Date()) -> String {
-        event.allDay ? formatDay(event.start, style: style, now: now, timeZone: tz)
-                     : formatInstant(event.start, style: style, now: now, timeZone: tz)
+        // ISO stays start-only: pipes force it and scripts parse the first column
+        // as the start instant (--json carries full start/end anyway).
+        if style == .iso {
+            return event.allDay ? localDate(event.start, timeZone: tz) : localISO(event.start, timeZone: tz)
+        }
+        var cal = Calendar(identifier: .gregorian); cal.timeZone = tz
+        if event.allDay {
+            let first = formatDay(event.start, style: style, now: now, timeZone: tz)
+            // Multi-day: a date range (the exclusive end midnight rolled back to
+            // the inclusive last day) — the range itself says "all day".
+            if let last = cal.date(byAdding: .day, value: -1, to: event.end), last > event.start {
+                return "\(first)–\(formatDay(last, style: style, now: now, timeZone: tz))"
+            }
+            return "\(first) all-day"                 // the marker sits where a time range would
+        }
+        let start = formatInstant(event.start, style: style, now: now, timeZone: tz)
+        guard event.end > event.start else { return start }
+        if cal.isDate(event.start, inSameDayAs: event.end) {
+            return "\(start)–\(hhmm(event.end, tz))"  // same day: end as a bare clock
+        }
+        return "\(start)–\(formatInstant(event.end, style: style, now: now, timeZone: tz))"
     }
 
     /// Human date styles for TEXT output. Pipes and `--json` always stay ISO/UTC
