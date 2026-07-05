@@ -86,7 +86,7 @@ struct Maccal: ParsableCommand {
             $ maccal auth
 
         The last column of agenda/search is a short git-style id — pass it to show,
-        edit, or rm (it's resolved back to the event). Use --long or --json for the
+        edit, rm, or export (it's resolved back to the event). Use --long or --json for the
         full id. Run 'maccal <command> --help' for per-command flags.
         """,
         version: AppVersion.current,
@@ -194,9 +194,9 @@ struct CalendarsCommand: ParsableCommand {
         abstract: "List calendars (use the title as a --calendar selector).",
         discussion: """
         Examples:
-          $ maccal calendars             # title, account, type, rw/ro, color
+          $ maccal calendars             # [●] title, account, type, rw/ro (● = calendar color)
           $ maccal calendars --writable  # only calendars you can modify
-          $ maccal calendars --json      # full records (identifier, sourceType, …)
+          $ maccal calendars --json      # full records (calendarIdentifier, sourceType, …)
 
         Use a calendar title or identifier anywhere --calendar is accepted.
         """
@@ -245,11 +245,12 @@ struct AgendaCommand: ParsableCommand {
           $ maccal agenda                                    # next 7 days, all calendars
           $ maccal agenda --from today --to +1d              # just today
           $ maccal agenda --calendar Work --calendar Akiflow # union of calendars
-          $ maccal agenda --from 2026-06-23 --to +5d --max 10
+          $ maccal agenda --from 2026-06-23 --to 2026-06-28 --max 10
           $ maccal agenda --json | jq -r .title              # pipe to jq
 
-        Columns: [●] · when · [calendar] · id — the ● is the calendar's color, the
-        id is a short git-style code (--long or --json for the full id).
+        Columns: [●] · when · [calendar] · title · id — the ● is the calendar's
+        color, 💻 marks an online meeting, and the id is a short git-style code
+        (--long or --json for the full id).
         """
     )
 
@@ -260,7 +261,7 @@ struct AgendaCommand: ParsableCommand {
             help: "Calendar to include, by title or identifier (case-insensitive). Repeat to union; omit for all.")
     var calendar: [String] = []
 
-    @Option(name: [.customLong("from"), .customLong("since")], help: "Window start: YYYY-MM-DD, today/tomorrow/yesterday, or ±Nd/±Nw. Default: today. (alias: --since)")
+    @Option(name: [.customLong("from"), .customLong("since")], help: "Window start: YYYY-MM-DD, today/tomorrow/yesterday, ±Nd/±Nw, a weekday (mon, next fri), next/last week, in N days/weeks. Default: today. (alias: --since)")
     var from: String?
 
     @Option(name: [.customLong("to"), .customLong("until")], help: "Window end (exclusive): same forms as --from. Default: --from + 7 days. (alias: --until)")
@@ -330,7 +331,7 @@ struct ShowCommand: ParsableCommand {
         """
     )
 
-    @Argument(help: "Event id from the first column / .id field of agenda or search output.")
+    @Argument(help: "Event id from the last column of agenda/search (or --json .handle).")
     var id: String
 
     @Flag(name: .long, help: "Single JSON object (every field).")
@@ -390,7 +391,7 @@ struct SearchCommand: ParsableCommand {
     @Option(name: .customLong("in"), help: "Fields to match: title | location | notes | all. Default: all.")
     var scope: String = "all"
 
-    @Option(name: [.customLong("from"), .customLong("since")], help: "Window start: YYYY-MM-DD, today/tomorrow/yesterday, or ±Nd/±Nw. Default: today - 30 days. (alias: --since)")
+    @Option(name: [.customLong("from"), .customLong("since")], help: "Window start: YYYY-MM-DD, today/tomorrow/yesterday, ±Nd/±Nw, a weekday (mon, next fri), next/last week, in N days/weeks. Default: today - 30 days. (alias: --since)")
     var from: String?
 
     @Option(name: [.customLong("to"), .customLong("until")], help: "Window end (exclusive): same forms as --from. Default: --from + 60 days. (alias: --until)")
@@ -545,7 +546,8 @@ struct EditCommand: ParsableCommand {
           $ maccal edit <id> --notes "" --yes               # empty string clears a field
           $ maccal edit <id> --title "Renamed" --json
 
-        Recurring events need --all-occurrences. Preview with --dry-run.
+        An id copied from a recurring agenda/search row targets that one occurrence;
+        a bare series id needs --all-occurrences. Preview with --dry-run.
         """
     )
 
@@ -627,7 +629,8 @@ struct RmCommand: ParsableCommand {
           $ maccal rm <id> --dry-run  # show what would be deleted
           $ maccal rm <id> --yes      # skip the prompt (required when piped)
 
-        Recurring events need --all-occurrences.
+        An id copied from a recurring agenda/search row cancels that one occurrence;
+        a bare series id needs --all-occurrences.
         """
     )
 

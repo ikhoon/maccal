@@ -20,7 +20,7 @@ The testable core, permission gate, output layer, test harness, install path, an
 - [x] `maccalCheck` harness — 21 checks, all passing
 - [x] `install.sh` — build → codesign (stable id `kr.ikhoon.maccal`, grant survives rebuilds) → symlink into `~/.local`
 - [x] `git init`
-- [ ] Initial commit (M1 import)
+- [x] Initial commit (M1 import)
 
 ---
 
@@ -54,15 +54,16 @@ Create and modify events. `CalendarAccess` already supports `needsWrite` / write
 
 ---
 
-## M4 — Polish & docs 🔜
+## M4 — Polish & docs ✅ (declined-events filter still open)
 
 - [x] **Independent Calendar permission** — `.app` bundle + disclaimed re-exec so the grant is keyed on `maccal.app`, not the host terminal; `maccal auth` bootstraps it and the gate guidance points there
 - [x] `show` notes rendered as plain text (HTML → text), and the event id moved to the last text column for readability
 - [x] Shell completions — generated from the binary by `install.sh` (zsh + bash)
 - [x] `README.md` — install, the independent-permission note, command reference, dates/durations, JSON scripting, troubleshooting
-- [ ] Configuration — default calendar (config file and/or env var)
-- [ ] Filtering — opt-in `agenda`/`search` filters to hide cancelled events (and declined, once a self-participant flag is mapped onto `AttendeeInfo`)
-- [x] Versioning — SemVer git tags (`v0.2.0`); the `--version` string (main.swift) and Info.plist are bumped together by hand.
+- [x] Configuration — `~/.config/maccal/config.json` (shipped beyond the plan: `defaultCalendar`, `hiddenCalendars`, `color`, `dateFormat` incl. custom patterns, `agendaMax`/`searchMax`; precedence flag > env > file > built-in)
+- [x] Filtering — `--hide-cancelled` on `agenda`/`search` (shipped), plus config `hiddenCalendars`
+- [ ] Filtering — hide *declined* events, once a self-participant flag is mapped onto `AttendeeInfo`
+- [x] Versioning — SemVer git tags; the version comes from `git describe`, stamped into the app bundle's Info.plist by `release.sh`/`package.sh` and read at runtime via `AppVersion` (nothing hand-bumped).
 - [x] CI — GitHub Actions (`macos-latest`) builds and runs the pure suite (`swift run maccalCheck`) on push/PR. The live EventKit round-trip (`swift run maccalCheck --integration`) is **local-only** (needs a Calendar grant), so CI omits it. (Linux can't build at all: EventKit/AppKit.)
 
 ---
@@ -82,13 +83,22 @@ One-way mirror of one or more source calendars into a target calendar over a win
 ## Conventions
 
 - All logic lives in `maccalCore` behind `CalendarStore` so commands are testable with no TCC/EventKit/network.
-- Every command supports `--json` (NDJSON) for `jq`/LLM pipelines; human output is TSV.
+- Read/list and write commands support `--json` (NDJSON for lists, a single object for one-event commands); human output is an aligned table on a TTY and raw TSV when piped. `export` emits `.ics`; `auth`/`completions` are plain.
 - Add a `maccalCheck` case with each new behavior; keep the suite green.
+
+## Shipped since M5 (v0.6.0 – v0.8.x)
+
+- `export` / `import` (iCalendar, incl. TZID), `free` (open slots), natural-language dates, shell `completions`.
+- The **maccalbar menu-bar app** — scheduled background sync, Settings window, About, blue tray tint while syncing,
+  bundled signed CLI, Homebrew cask.
+- The **output overhaul + config file** (#21): aligned CJK-safe tables, readable date ranges + all-day marker,
+  calendar-color dots, short git-style ids, the Ink & Token theme, `handle`/`meetingUrl` JSON fields.
+- **Online-meeting marker** (#22): 💻 in agenda/search, `Online:` in show, `meetingUrl` in JSON.
 
 ## Review notes (deliberate choices from the M2 review)
 
 - **Window flags are `--from`/`--to`** (macmail uses `--since`/`--until`). Chosen for clarity; `--since`/`--until`
-  aliases could be added later. The upper bound is exclusive, matching macmail's `--until`.
+  are accepted as aliases everywhere (and are the native flags on `sync`). The upper bound is exclusive, matching macmail's `--until`.
 - **Text mode is the human view; `--json` is the machine contract.** When `--max` caps the rows, `agenda`/`search`
   print a `showing M of N …` truncation notice on **stderr** — stdout carries only the data rows. `search --json`
   always emits a final `{"_summary":{…}}` line (even on zero matches). Pipelines should use `--json` (and
@@ -102,7 +112,8 @@ One-way mirror of one or more source calendars into a target calendar over a win
 
 ### From the M3 (write) review
 
-- **Per-occurrence edit/rm via an occurrence handle.** agenda/search print `id@epoch` for recurring rows;
+- **Per-occurrence edit/rm via an occurrence handle.** Recurring rows carry an `id@epoch` handle (a TTY shows a
+  short git-style code that resolves to it; the raw handle appears via `--long`, pipes, and `--json` `.handle`);
   `rm <handle>` cancels one occurrence (EXDATE) and `edit <handle>` detach-edits it (non-schedule fields:
   title/location/notes/url/availability). Rescheduling one occurrence, moving its calendar, or changing the
   whole series still uses `--all-occurrences`.
@@ -110,7 +121,8 @@ One-way mirror of one or more source calendars into a target calendar over a win
   store failure, **declined prompt**, or non-TTY refusal); `2` = the permission gate. So `maccal rm X && next` won't run
   `next` on a decline.
 - **`--json` is one shape across `add`/`edit`/`rm`** — the affected event as a single object (same as `show`), preserving
-  `allDay`/`end`/`timeZone`. (`rm` no longer emits a bespoke `{deleted:…}` record.) `edit`'s *text* dry-run shows a
+  `allDay`/`end`/`timeZone`. (`rm` no longer emits a bespoke `{deleted:…}` record — except per-occurrence `rm`, which
+  returns a small `{cancelled, occurrence, title}` object.) `edit`'s *text* dry-run shows a
   before→after diff while success echoes the full event — intentional (a new event has no before-state).
 - **`add --calendar` takes exactly one calendar** (a new event lives in one), unlike the repeatable `--calendar` union on
   `agenda`/`search`. `edit --calendar` moves an event to another writable calendar.

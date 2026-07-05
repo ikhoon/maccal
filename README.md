@@ -31,7 +31,7 @@ rather than your terminal.
 - 🔒 **Minimal permission** — maccal holds its *own* Calendar grant (not the
   terminal's), so you don't expose every program in your terminal to your
   calendar. See [Calendar access](#calendar-access-one-time).
-- 🤖 **Scriptable** — `--json` (NDJSON) on every command, made for `jq` / LLM
+- 🤖 **Scriptable** — `--json` (NDJSON) on every read/write command, made for `jq` / LLM
   pipelines. Destructive commands confirm by default and take `--yes` / `--dry-run`.
 - 🗓️ **Full CRUD + sync** — `calendars` · `agenda` · `show` · `search` · `add` · `edit` · `rm` · `sync`.
 - 🖥️ **Optional menu-bar app** — scheduled background calendar-to-calendar sync.
@@ -138,14 +138,14 @@ Everything you need for daily use. Copy, paste, adjust.
 
 ```bash
 # SEE YOUR CALENDARS ────────────────────────────────────────────────────
-maccal calendars                          # title · account · type · rw/ro · color
+maccal calendars                          # ● color dot · title · account · type · rw/ro
 maccal calendars --writable               # only the ones you can edit
 
 # AGENDA — what's coming up ──────────────────────────────────────────────
 maccal agenda                             # next 7 days, all calendars
 maccal agenda --from today --to +1d       # just today
 maccal agenda --calendar Work --max 5     # one calendar, 5 rows
-maccal agenda --from 2026-07-01 --to +3d  # an explicit window (3 days)
+maccal agenda --from 2026-07-01 --to 2026-07-04   # an explicit 3-day window
 
 # SEARCH — find events by text ───────────────────────────────────────────
 maccal search standup                     # match title/location/notes, ±30 days
@@ -170,9 +170,10 @@ maccal auth                               # grant maccal its own Calendar access
 ```
 
 > **The last column** of `agenda` / `search` is a **short git-style id** — pass it
-> to `show`, `edit`, and `rm` (it's resolved back to the event over a ±1-year
-> window). Use `--long` (or `--json` → `.handle`) for the full id. Human output is
-> TSV; add `--json` to any command for NDJSON.
+> to `show`, `edit`, `rm`, or `export` (it's resolved back to the event over a
+> ±1-year window). On a terminal, output is an **aligned table** with short ids and
+> readable dates; **piped/redirected output is raw tab-separated TSV with full ids
+> and ISO dates** (script-safe). Add `--json` for NDJSON.
 
 ---
 
@@ -186,7 +187,8 @@ maccal auth                               # grant maccal its own Calendar access
 | **Interop** | `export` `import` | iCalendar (.ics) out / in |
 | **Setup** | `auth` | grant Calendar access once |
 
-Conventions: every command takes `--json` (NDJSON, for `jq`); `--calendar`
+Conventions: every read/write/sync command takes `--json` (NDJSON, for `jq`;
+`export` emits `.ics`, `auth`/`completions` are plain); `--calendar`
 selects by title **or** identifier (case-insensitive); write commands take
 `--dry-run` (preview) and `-y` / `--yes` (skip the prompt).
 
@@ -209,7 +211,7 @@ $ maccal calendars
 maccal calendars --writable     # only calendars you can modify
 maccal calendars --source work  # filter by account (case-insensitive substring)
 maccal calendars --all          # include calendars hidden via config (hiddenCalendars)
-maccal calendars --json         # full records (identifier, sourceType, color hex)
+maccal calendars --json         # full records (calendarIdentifier, sourceType, color hex)
 ```
 
 ---
@@ -218,12 +220,15 @@ maccal calendars --json         # full records (identifier, sourceType, color he
 
 Events in a date window, soonest first. Columns: **[●] · when · [calendar] · title
 · id** — on a terminal a leading **●** shows the calendar's color, dates are
-readable, and the id is a short git-style code (`--long` / `--json` for the full
-id). The `calendar` column appears only when results span more than one.
+readable ranges (`10:30–11:00`, `all-day`), an online meeting (Zoom/Meet/Teams
+link) gets a **💻** marker, and the id is a short git-style code (`--long` /
+`--json` for the full id). The `calendar` column appears only when results span
+more than one; when `--max` caps the rows, a notice goes to **stderr** (stdout
+stays clean).
 
 ```console
 $ maccal agenda --from today --to +1d
-●  2026-06-23 10:30–11:00   Standup         a1b2c3d
+●  2026-06-23 10:30–11:00   Standup 💻      a1b2c3d
 ●  2026-06-23 14:00–15:30   Design review   9f4e2a1
 ●  2026-06-23 all-day       Team offsite    77e1c09
 ```
@@ -231,7 +236,7 @@ $ maccal agenda --from today --to +1d
 ```bash
 maccal agenda                                # next 7 days, all calendars
 maccal agenda --calendar Work --calendar Personal   # union of calendars (repeatable)
-maccal agenda --from 2026-07-01 --to +3d --max 10
+maccal agenda --from 2026-07-01 --to 2026-07-04 --max 10
 maccal agenda --json | jq -r .title
 ```
 
@@ -239,23 +244,29 @@ maccal agenda --json | jq -r .title
 |---|---|---|
 | `--from` / `--to` | `[today, +7d)` | Window bounds (exclusive end); see [Dates](#dates--durations) |
 | `--calendar <sel>` | all | Title or identifier; repeatable to union |
-| `--max <n>` | `20` | Max rows (trailer reports the true total) |
+| `--max <n>` | config `agendaMax` or `30` | Max rows (stderr notice reports the true total) |
+| `--all` | — | Include calendars hidden via config `hiddenCalendars` |
+| `--long` | — | Full event ids instead of the short code |
+| `--iso` | — | Force ISO-8601 dates (pipes always use ISO) |
 | `--hide-cancelled` | — | Omit events with a cancelled status |
-| `--json` | — | NDJSON |
+| `--no-color` / `--json` | — | Plain / NDJSON |
 
 ---
 
 ### `show`
 
-Print one event's full detail by id. HTML notes (Google/Exchange) render as
-plain text.
+Print one event's full detail by id — the short code from agenda/search works
+directly. HTML notes (Google/Exchange) render as plain text; a video-conference
+link found anywhere in the event surfaces as `Online:`.
 
 ```console
-$ maccal show 1A2B…
+$ maccal show 9f4e2a1
+Id:           1A2B3C4D-…@example.com
 Title:        Design review
-When:         2026-06-23T14:00:00+09:00 — 2026-06-23T15:00:00+09:00
+When:         2026-06-23 14:00 — 2026-06-23 15:00
 Calendar:     Work
 Location:     Room 4F
+Online:       https://meet.google.com/abc-defg-hij
 Status:       confirmed
 Availability: busy
 Attendees:
@@ -266,7 +277,7 @@ Agenda: walk through the new layout, then Q&A.
 
 ```bash
 maccal show <id> --json | jq .attendees
-maccal show "$(maccal agenda --json | jq -r .id | head -1)"   # today's first event
+maccal show "$(maccal agenda --json | jq -r .handle | head -1)"   # today's first event
 ```
 
 ---
@@ -294,10 +305,11 @@ maccal search incident --count-only    # totals only, no rows
 | `--in <scope>` | `all` | `title` \| `location` \| `notes` \| `all` |
 | `--calendar <sel>` | all | Title/identifier, repeatable |
 | `--from` / `--to` | `[today-30d, +30d)` | Window bounds |
-| `--max <n>` | `10` | Max rows |
+| `--max <n>` | config `searchMax` or `10` | Max rows (stderr notice reports the true total) |
 | `--count-only` | — | Print totals, no rows |
+| `--all` / `--long` / `--iso` | — | Show hidden calendars / full ids / ISO dates |
 | `--hide-cancelled` | — | Omit events with a cancelled status |
-| `--json` | — | NDJSON; final line is `{"_summary": {…}}` |
+| `--no-color` / `--json` | — | Plain / NDJSON; final line is `{"_summary": {…}}` |
 
 ---
 
@@ -375,10 +387,13 @@ Flags: `--title`, `--start`/`--end`/`--duration`, `--location`/`--notes`/`--url`
 Delete an event by id. Confirms by default (declined unless you type `y`).
 
 ```console
-$ maccal rm 1A2B…
+$ maccal rm 3c9d112
+Id:           1A2B3C4D-…@example.com
 Title:        Lunch
-When:         2026-06-21T12:00:00+09:00 — 2026-06-21T13:00:00+09:00
+When:         2026-06-21 12:00 — 2026-06-21 13:00
 Calendar:     Personal
+Status:       confirmed
+Availability: busy
 Delete this event? [y/N] y
 deleted 1A2B… — Lunch
 ```
@@ -406,7 +421,7 @@ title/identifier.
 
 ```console
 $ maccal sync --from "Google/Team" --to "iCloud/Mirror" --dry-run
-would sync: Team → Mirror   +3 new  ~0 changed  -0 removed
+would sync: Team → Mirror   +3 new  ~0 changed  -0 removed  ✂0 cancelled
   + 2026-06-20T10:00:00+09:00  Standup
   + 2026-06-20T14:00:00+09:00  Design review
   + 2026-06-21T12:00:00+09:00  Lunch
@@ -428,7 +443,7 @@ running `maccal sync … --yes` — or let the [menu-bar app](#menu-bar-sync-app
 schedule it for you.
 
 Flags: `--from` (repeatable), `--to`, `--since`/`--until`, `--notes`,
-`--no-location`, `--no-delete`, `--json`, `--dry-run`, `--yes`.
+`--no-location`, `--no-delete`, `--no-color`, `--json`, `--dry-run`, `--yes`.
 
 ---
 
@@ -446,8 +461,10 @@ cat invite.ics | maccal import - --yes               # from stdin
 
 `export` writes timed events in UTC and all-day events as `VALUE=DATE`. `import`
 reads VEVENTs (summary/start/end/location/description/url) into `--calendar` (or
-the default), confirming once for the whole batch. Recurrence rules and non-UTC
-time zones aren't round-tripped yet.
+the config `defaultCalendar`), validates them (end > start, whole-day all-day),
+confirms once for the whole batch, and takes `--json` for the created events /
+dry-run plan. A `TZID` on `DTSTART`/`DTEND` is honored on import; recurrence
+rules aren't round-tripped yet.
 
 ---
 
@@ -468,9 +485,11 @@ Not everyone wants to hand-write a `launchd` job. **maccal.app** is a menu-bar
 companion that schedules `maccal sync` for you and keeps it running in the
 background — set your calendars once and forget it.
 
-A calendar icon with a small sync overlay sits in your menu bar. Click it for the
-current status — the calendars you're mirroring, the target, and when the last
-sync ran — plus **Sync now**, **Settings…**, and the toggles below.
+A calendar icon with a small sync overlay sits in your menu bar — it **spins in
+blue while a sync is in flight**, so you can see it working at a glance. Click it
+for the current status — the calendars you're mirroring, the target, and when the
+last sync ran — plus **About maccal**, **Sync now**, **Settings…**, and the
+toggles below.
 
 ### Settings
 
@@ -486,7 +505,7 @@ re-registers itself on every change — no restart, no "apply".
 
 Once **Sources** and a **Target** are set, background sync just starts — there's
 no "run in background" switch to remember. The menu shows the **last-synced** time
-and a compact tally (`+N new  ~N changed  −N removed`), updated by both manual
+and a compact tally (`+N ~N −N`, plus `✂N` for cancelled occurrences), updated by both manual
 **Sync now** runs and the scheduled `launchd` job (via a small shared last-sync
 record, so background runs show up too).
 
@@ -527,11 +546,18 @@ $ brew install --cask ikhoon/tap/maccal-app
 > instead — `brew install ikhoon/tap/maccal`. Both put `maccal` on `PATH`, so pick
 > one, not both.
 
-**From source** — build a universal `maccal.app`, install to `/Applications`, launch:
+**From source** — build a universal `maccal.app`, install to `/Applications`,
+symlink the bundled (signed) CLI to `~/.local/bin/maccal` (it shares the app's
+Calendar grant), and launch:
 
 ```console
 $ ./package.sh --install
 ```
+
+By default the build is ad-hoc signed — every rebuild changes the code hash, so
+macOS re-asks for Calendar access. For an iterative local loop, set
+`MACCAL_SIGN_ID` to a self-signed keychain identity and the grant survives
+rebuilds: `MACCAL_SIGN_ID=my-dev-cert ./package.sh --install`.
 
 Or download `maccal-menubar-<version>-macos-universal.zip` from **Releases**, unzip,
 and drag `maccal.app` to `/Applications`.
@@ -559,7 +585,7 @@ shares this grant — background sync needs no separate prompt.
 |---|---|
 | Calendar date | `2026-07-01` |
 | Keyword | `today` · `tomorrow` · `yesterday` |
-| Signed offset | `+7d` · `-3d` · `+2w` |
+| Signed offset | `+7d` · `-3d` · `+2w` — always relative to **today**, not to `--from` |
 | Natural language | `friday` · `next monday` · `last friday` · `next week` · `in 3 days` · `in 2 weeks` |
 | Timed | `2026-07-01T14:30` · `'2026-07-01 14:30'` · `'today 14:30'` · `'+1d 09:00'` |
 
@@ -597,20 +623,29 @@ optional: a missing file just means built-in defaults. Precedence is **flag > en
 
 > macOS/EventKit exposes no "calendar is hidden in Calendar.app" flag, so
 > `hiddenCalendars` is the way to keep unused calendars out of your listings.
-> `maccal calendars --json` prints each calendar's `identifier` for pinning.
+> `maccal calendars --json` prints each calendar's `calendarIdentifier` for pinning.
 
 ---
 
 ## Scripting with JSON
 
-Every command supports `--json` (NDJSON — one object per line). Dates are UTC
-ISO-8601 (`Z`) in JSON, local-with-offset in text. Every field is always present
-(empty values are `""` / `[]` / `false`), so `jq` never hits a missing key.
+Every read/write/sync command supports `--json` (NDJSON — one object per line;
+`export` emits `.ics` instead). Dates are UTC
+ISO-8601 (`Z`) in JSON; piped text stays local ISO with offset, while a terminal
+uses `dateFormat` (readable by default). Every field is always present (empty
+values are `""` / `[]` / `false`) — except `recurrenceRule`, which appears only
+when `recurring` is true — so `jq` (almost) never hits a missing key.
 
 Each event carries a **`handle`** — the exact token to pass to `show` / `edit` /
 `rm`. For a one-off it equals `.id`; for a recurring event it's `id@epoch`,
 pinning the single occurrence you saw. Use `.handle` (not `.id`) when scripting
-edits/deletes so you don't accidentally hit a whole series.
+edits/deletes so you don't accidentally hit a whole series. Events also carry
+**`meetingUrl`** — the detected video-conference link (`""` when none):
+
+```bash
+# Open the next online meeting's link
+maccal agenda --json | jq -r 'select(.meetingUrl != "") | .meetingUrl' | head -1 | xargs open
+```
 
 ```bash
 # When + title of the next week's events
@@ -695,8 +730,9 @@ maccal.app (menu-bar)
   marker in its URL (`maccal-sync://<epoch>/<srcId>`), so re-runs add/update/delete
   exactly maccal's copies and never your real events in the target.
 - **Recurring series resolve to their anchor.** An `eventIdentifier` carries no
-  occurrence date, so `edit`/`rm` on a repeat require `--all-occurrences` rather
-  than silently hitting the wrong instance.
+  occurrence date, so a bare series id needs `--all-occurrences` — while the
+  `id@epoch` handle printed by agenda/search pins the single occurrence you saw,
+  and `edit`/`rm` accept it directly.
 - **Date math is DST-correct.** Windows, durations, and keep-duration edits add
   calendar components (not raw seconds), so a 1h meeting stays 1h across a
   spring-forward boundary.
