@@ -190,6 +190,31 @@ extension EventInfo {
         recurring ? Output.occurrenceHandle(id: id, start: start) : id
     }
 
+    /// The first video-conference link found in url → location → notes (Zoom,
+    /// Google Meet, Teams, Webex, Whereby, Jitsi, Chime, Slack huddle), or nil.
+    /// Marks an event as an online meeting; `show` prints it and `--json` carries
+    /// it as `meetingUrl` so scripts can `open` it directly.
+    public var meetingURL: String? {
+        for field in [url, location, notes] {
+            if let link = Self.firstMeetingLink(in: field) { return link }
+        }
+        return nil
+    }
+
+    private static let meetingLinkPattern =
+        #"https?://[^\s<>"')]*(?:zoom\.us/(?:j|my|s)/|meet\.google\.com/|teams\.microsoft\.com/l/|teams\.live\.com/|webex\.com/(?:meet|join)/|whereby\.com/|meet\.jit\.si/|app\.slack\.com/huddle/|chime\.aws/)[^\s<>"')]*"#
+
+    private static func firstMeetingLink(in text: String) -> String? {
+        guard !text.isEmpty,
+              let r = text.range(of: meetingLinkPattern, options: [.regularExpression, .caseInsensitive])
+        else { return nil }
+        // Trim sentence punctuation that the greedy run may have swallowed
+        // ("Join: https://zoom.us/j/123.").
+        var link = String(text[r])
+        while let last = link.last, ".,;".contains(last) { link.removeLast() }
+        return link
+    }
+
     /// Canonical ordering — start ascending, then title (case-insensitive), then
     /// id — so NDJSON output is byte-stable across runs and stores.
     public static func sortedByStart(_ events: [EventInfo]) -> [EventInfo] {
