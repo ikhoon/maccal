@@ -38,7 +38,12 @@ public func runSearch(
     max: Int = 10,
     countOnly: Bool = false,
     color: Bool = false,
+    aligned: Bool = false,
+    dateStyle: Output.DateStyle = .iso,
+    long: Bool = false,
     hideCancelled: Bool = false,
+    hiddenCalendars: [String] = [],
+    showAll: Bool = false,
     now: Date,
     timeZone: TimeZone = .current
 ) throws -> String {
@@ -46,7 +51,11 @@ public func runSearch(
         from: from, to: to, now: now, timeZone: timeZone,
         defaultFromDays: -30, defaultSpanDays: 60
     )
-    let inWindow = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    var inWindow = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    // Hide-list: same rule as agenda — excluded unless --all or explicit --calendar.
+    if !showAll, calendars.isEmpty, !hiddenCalendars.isEmpty {
+        inWindow = inWindow.filter { !$0.matchesCalendar(hiddenCalendars) }
+    }
     let examined = inWindow.count
 
     // Empty query degenerates to "everything in window" (substring "" matches
@@ -58,30 +67,32 @@ public func runSearch(
 
     if json {
         let summary = SearchSummary(summary: .init(examined: examined, shown: shown.count, total: total))
-        return Output.ndjson(shown) + Output.jsonLine(summary)
+        return Output.eventsNDJSON(shown) + Output.jsonLine(summary)
     }
 
     if countOnly {
         return "total: \(total)\nexamined: \(examined)\n"
     }
 
-    let multiCalendar = Set(shown.map(\.calendar)).count > 1
-    // Columns: when · [calendar] · title · id (human bits first, long id last).
-    let rows = shown.map { ev -> [String] in
-        let when = Output.paint(Output.when(ev, timeZone: timeZone), .cyan, enabled: color)
-        let title = Output.sanitize(ev.title)
-        // Recurring rows print an occurrence handle (id@epoch) so edit/rm can target one.
-        let idStr = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
-        let id = Output.paint(idStr, .dim, enabled: color)
-        return multiCalendar
-            ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, id]
-            : [when, title, id]
-    }
-    var out = Output.tsv(rows)
     if total > shown.count {
-        out += "(showing \(shown.count) of \(total) — narrow filters if too many)\n"
+        Output.warn("showing \(shown.count) of \(total) — narrow filters or raise --max")
     }
-    return out
+    let multiCalendar = Set(shown.map(\.calendar)).count > 1
+    let colorByCal = color ? Dictionary(store.calendars().map { ($0.calendarIdentifier, $0.color) }, uniquingKeysWith: { a, _ in a }) : [:]
+    // Columns: [●] · when · [calendar] · id — matching agenda's Ink & Token
+    // styling: bold title, default-fg when/calendar, cyan copyable id.
+    let rows = shown.map { ev -> [String] in
+        let when = Output.when(ev, style: dateStyle, timeZone: timeZone, now: now)
+        let title = Output.paint(Output.sanitize(ev.title), .bold, enabled: color)
+        let handle = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
+        let idStr = Output.paint(long ? handle : Output.shortId(handle), .cyan, enabled: color)
+        var row = multiCalendar
+            ? [when, Output.sanitize(ev.calendar), title, idStr]
+            : [when, title, idStr]
+        if color { row.insert(Output.colorDot(colorByCal[ev.calendarId] ?? ""), at: 0) }
+        return row
+    }
+    return Output.table(rows, aligned: aligned)
 }
 
 /// Case-insensitive substring match over the fields selected by `scope`.

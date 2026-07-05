@@ -73,7 +73,11 @@ public func runEdit(
     if current.recurring, !allOccurrences { throw WriteValidationError.recurringRequiresAllOccurrences }
 
     // Parse new bounds in --tz, else the event's authoring zone, else local.
-    let parseZone = try resolveTimeZone(tz, fallback: TimeZone(identifier: current.timeZone) ?? timeZone)
+    // --tz is validated always, but a floating all-day event ignores it: its
+    // date-only bounds are snapped in the display zone so the calendar day can't
+    // shift under a foreign --tz.
+    let resolvedZone = try resolveTimeZone(tz, fallback: TimeZone(identifier: current.timeZone) ?? timeZone)
+    let parseZone = current.allDay ? timeZone : resolvedZone
     var cal = Calendar(identifier: .gregorian)
     cal.timeZone = parseZone
 
@@ -114,6 +118,11 @@ public func runEdit(
     let newEnd: Date
     if current.allDay {
         guard !startTimed, !endTimed else { throw WriteValidationError.allDayWithTime }
+        // A sub-day --duration/--end can't apply to an all-day event — reject it
+        // rather than silently snapping to a day boundary.
+        if (duration != nil || end != nil), cal.startOfDay(for: newEndRaw) != newEndRaw {
+            throw WriteValidationError.allDayWithTime
+        }
         newStart = cal.startOfDay(for: newStartRaw)
         newEnd = cal.startOfDay(for: newEndRaw)
         if datesChanged { guard newEnd > newStart else { throw WriteValidationError.allDayWithTime } }
@@ -131,7 +140,7 @@ public func runEdit(
     }
     if start != nil { changes.start = newStart }
     if datesChanged { changes.end = newEnd }
-    if tz != nil { changes.timeZoneId = parseZone.identifier } // canonicalized, like add
+    if tz != nil, !current.allDay { changes.timeZoneId = parseZone.identifier } // canonicalized, like add; ignored for floating all-day
     if let location { changes.location = location }
     if let notes { changes.notes = notes }
     if let url {

@@ -183,6 +183,13 @@ extension EventInfo {
         }
     }
 
+    /// The stable token to pass to show/edit/rm, and the value shown in the
+    /// agenda/search last column: the series `id`, or `id@epoch` for a specific
+    /// recurring occurrence.
+    public var handle: String {
+        recurring ? Output.occurrenceHandle(id: id, start: start) : id
+    }
+
     /// Canonical ordering — start ascending, then title (case-insensitive), then
     /// id — so NDJSON output is byte-stable across runs and stores.
     public static func sortedByStart(_ events: [EventInfo]) -> [EventInfo] {

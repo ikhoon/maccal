@@ -85,8 +85,9 @@ struct Maccal: ParsableCommand {
           First-time setup (grant maccal its own Calendar access):
             $ maccal auth
 
-        The id in the last column of agenda/search output is what you pass to show,
-        edit, and rm. Run 'maccal <command> --help' for per-command flags.
+        The last column of agenda/search is a short git-style id — pass it to show,
+        edit, or rm (it's resolved back to the event). Use --long or --json for the
+        full id. Run 'maccal <command> --help' for per-command flags.
         """,
         version: AppVersion.current,
         subcommands: [
@@ -125,17 +126,66 @@ func emit(_ result: WriteResult) throws {
     switch result {
     case .wrote(let s), .dryRun(let s): print(s, terminator: "")
     case .aborted:
-        FileHandle.standardError.write(Data("aborted\n".utf8))
+        FileHandle.standardError.write(Data("maccal: aborted (nothing written)\n".utf8))
         throw ExitCode(1)
     }
 }
 
-/// Whether to colorize human output: on for a TTY, off for pipes/redirects,
-/// `--json`, `--no-color`, or a set `NO_COLOR`. Keeps ANSI out of pipes and JSON.
-func useColor(noColor: Bool, json: Bool) -> Bool {
-    if json || noColor { return false }
-    if ProcessInfo.processInfo.environment["NO_COLOR"] != nil { return false }
-    return isatty(fileno(stdout)) == 1
+/// Load CLI defaults from the config file (see maccalCore/Config.swift). A
+/// present-but-malformed file is reported on stderr and we fall back to built-in
+/// defaults, so a typo can never wedge every command.
+func loadConfig() -> Config {
+    do {
+        return try ConfigLoader.load()
+    } catch {
+        FileHandle.standardError.write(Data("maccal: ignoring invalid config at \(ConfigLoader.path()): \(error)\n".utf8))
+        return Config()
+    }
+}
+
+/// Whether to colorize human output. `--json` is never colored (clean data);
+/// otherwise the config's color mode decides ("auto" = TTY only, "always",
+/// "never"), with `--no-color`/NO_COLOR forcing it off. Precedence: flag > env >
+/// config > built-in (auto).
+func resolveColor(_ config: Config, noColor: Bool, json: Bool) -> Bool {
+    if json { return false }
+    let envNoColor = ProcessInfo.processInfo.environment["NO_COLOR"] != nil
+    return config.useColor(isTTY: isatty(fileno(stdout)) == 1, flagNoColor: noColor, envNoColor: envNoColor)
+}
+
+/// Whether to render human tables column-aligned: only for an interactive stdout
+/// and never for `--json`. Piped/redirected output stays raw `\t` TSV so scripts
+/// keep parsing with `cut -f` / `awk -F'\t'`. Independent of color.
+func useTable(json: Bool) -> Bool {
+    !json && isatty(fileno(stdout)) == 1
+}
+
+/// On an interactive TTY, nudge on stderr when a read command produced no rows —
+/// a bare empty stdout otherwise reads like a hang. Silent for pipes/`--json` so
+/// piped data stays clean and empty-means-no-rows.
+func emptyNote(_ out: String, json: Bool, _ message: String) {
+    if out.isEmpty, useTable(json: json) { Output.warn(message) }
+}
+
+/// Resolve a short git-style id (from agenda/search) to its full event handle,
+/// or print a `maccal:` message and exit 1. A full id/handle passes through.
+func resolveOrExit(_ id: String, store: CalendarStore) throws -> String {
+    do { return try resolveEventToken(id, store: store, now: Date(), timeZone: .current) }
+    catch let e as MaccalError {
+        FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
+        throw ExitCode(1)
+    }
+}
+
+/// Human date style for text output. `--iso` forces ISO; a pipe/redirect also
+/// stays ISO (machine contract for `cut`/`awk`); an interactive TTY uses the
+/// config's dateFormat — a named style (iso/readable/friendly/compact) or a
+/// day.js-style custom pattern like "MMM D HH:mm". `--json` dates are separate
+/// (always UTC ISO via the encoder), so this doesn't touch them.
+func resolveDateStyle(_ config: Config, iso: Bool) -> Output.DateStyle {
+    if iso { return .iso }
+    if isatty(fileno(stdout)) != 1 { return .iso }
+    return Output.DateStyle(config.dateFormat ?? "readable")
 }
 
 struct CalendarsCommand: ParsableCommand {
@@ -161,10 +211,14 @@ struct CalendarsCommand: ParsableCommand {
     @Option(name: .long, help: "Filter by source/account title (case-insensitive substring).")
     var source: String?
 
+    @Flag(name: .long, help: "Include calendars hidden via config.hiddenCalendars.")
+    var all = false
+
     @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
     var noColor = false
 
     func run() throws {
+        let config = loadConfig()
         let store = EKEventStore()
         CalendarAccess.require(store: store)
         let out = runCalendars(
@@ -172,9 +226,13 @@ struct CalendarsCommand: ParsableCommand {
             json: json,
             writableOnly: writable,
             sourceFilter: source,
-            color: useColor(noColor: noColor, json: json)
+            hiddenCalendars: config.hiddenCalendars,
+            showAll: all,
+            color: resolveColor(config, noColor: noColor, json: json),
+            aligned: useTable(json: json)
         )
         print(out, terminator: "")
+        emptyNote(out, json: json, "no calendars match")
     }
 }
 
@@ -190,7 +248,8 @@ struct AgendaCommand: ParsableCommand {
           $ maccal agenda --from 2026-06-23 --to +5d --max 10
           $ maccal agenda --json | jq -r .title              # pipe to jq
 
-        Columns: when · [calendar] · title · id (id last; use --json for scripting).
+        Columns: [●] · when · [calendar] · id — the ● is the calendar's color, the
+        id is a short git-style code (--long or --json for the full id).
         """
     )
 
@@ -207,19 +266,30 @@ struct AgendaCommand: ParsableCommand {
     @Option(name: [.customLong("to"), .customLong("until")], help: "Window end (exclusive): same forms as --from. Default: --from + 7 days. (alias: --until)")
     var to: String?
 
-    @Option(name: .long, help: "Maximum rows shown. Default: 20.")
-    var max: Int = 20
+    @Option(name: .long, help: "Maximum rows shown. Default: config.agendaMax or 30.")
+    var max: Int?
+
+    @Flag(name: .long, help: "Include events from calendars hidden via config.hiddenCalendars.")
+    var all = false
 
     @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
     var noColor = false
+
+    @Flag(name: .customLong("iso"), help: "Force ISO-8601 dates (default: config.dateFormat, 'readable' on a TTY).")
+    var iso = false
+
+    @Flag(name: .customLong("long"), help: "Show full event ids instead of the short git-style code.")
+    var long = false
 
     @Flag(name: .customLong("hide-cancelled"), help: "Hide events with a cancelled status.")
     var hideCancelled = false
 
     func run() throws {
-        // Validate args before prompting for Calendar access.
-        guard max > 0 else {
-            FileHandle.standardError.write(Data("maccal: --max must be a positive integer\n".utf8))
+        let config = loadConfig()
+        // --max flag > config.agendaMax > built-in 30.
+        let effectiveMax = max ?? config.agendaMax ?? 30
+        guard effectiveMax > 0 else {
+            FileHandle.standardError.write(Data("maccal: max must be a positive integer (--max or config.agendaMax)\n".utf8))
             throw ExitCode(1)
         }
         let store = EKEventStore()
@@ -227,12 +297,18 @@ struct AgendaCommand: ParsableCommand {
         do {
             let out = try runAgenda(
                 store: EKCalendarStore(store: store),
-                json: json, calendars: calendar, from: from, to: to, max: max,
-                color: useColor(noColor: noColor, json: json),
+                json: json, calendars: calendar, from: from, to: to, max: effectiveMax,
+                color: resolveColor(config, noColor: noColor, json: json),
+                aligned: useTable(json: json),
+                dateStyle: resolveDateStyle(config, iso: iso),
+                long: long || !useTable(json: json),   // pipe/redirect → full id (script-safe), like dates
                 hideCancelled: hideCancelled,
+                hiddenCalendars: config.hiddenCalendars,
+                showAll: all,
                 now: Date(), timeZone: .current
             )
             print(out, terminator: "")
+            emptyNote(out, json: json, "no events in this window")
         } catch let e as MaccalError {
             FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
             throw ExitCode(1)
@@ -263,11 +339,21 @@ struct ShowCommand: ParsableCommand {
     @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
     var noColor = false
 
+    @Flag(name: .customLong("iso"), help: "Force ISO-8601 dates (default: config.dateFormat, 'readable' on a TTY).")
+    var iso = false
+
     func run() throws {
+        let config = loadConfig()
         let store = EKEventStore()
         CalendarAccess.require(store: store)
-        let result = runShow(store: EKCalendarStore(store: store), id: id, json: json,
-                             color: useColor(noColor: noColor, json: json), timeZone: .current)
+        let ck = EKCalendarStore(store: store)
+        let resolvedId = try resolveOrExit(id, store: ck)
+        // A recurring occurrence handle (id@epoch) shows the series anchor — strip
+        // the @epoch so event(withIdentifier:) gets a bare id (like export does).
+        let seriesId = Output.parseOccurrenceHandle(resolvedId)?.id ?? resolvedId
+        let result = runShow(store: ck, id: seriesId, json: json,
+                             color: resolveColor(config, noColor: noColor, json: json),
+                             dateStyle: resolveDateStyle(config, iso: iso), now: Date(), timeZone: .current)
         guard result.found else {
             FileHandle.standardError.write(Data("maccal: event \(id) not found\n".utf8))
             throw ExitCode(1)
@@ -310,14 +396,23 @@ struct SearchCommand: ParsableCommand {
     @Option(name: [.customLong("to"), .customLong("until")], help: "Window end (exclusive): same forms as --from. Default: --from + 60 days. (alias: --until)")
     var to: String?
 
-    @Option(name: .long, help: "Maximum rows shown. Default: 10.")
-    var max: Int = 10
+    @Option(name: .long, help: "Maximum rows shown. Default: config.searchMax or 10.")
+    var max: Int?
 
     @Flag(name: .long, help: "Print totals only and pull no rows.")
     var countOnly = false
 
+    @Flag(name: .long, help: "Include events from calendars hidden via config.hiddenCalendars.")
+    var all = false
+
     @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
     var noColor = false
+
+    @Flag(name: .customLong("iso"), help: "Force ISO-8601 dates (default: config.dateFormat, 'readable' on a TTY).")
+    var iso = false
+
+    @Flag(name: .customLong("long"), help: "Show full event ids instead of the short git-style code.")
+    var long = false
 
     @Flag(name: .customLong("hide-cancelled"), help: "Hide events with a cancelled status.")
     var hideCancelled = false
@@ -328,8 +423,11 @@ struct SearchCommand: ParsableCommand {
             FileHandle.standardError.write(Data("maccal: invalid --in value '\(scope)' (use title|location|notes|all)\n".utf8))
             throw ExitCode(1)
         }
-        guard max > 0 else {
-            FileHandle.standardError.write(Data("maccal: --max must be a positive integer\n".utf8))
+        let config = loadConfig()
+        // --max flag > config.searchMax > built-in 10.
+        let effectiveMax = max ?? config.searchMax ?? 10
+        guard effectiveMax > 0 else {
+            FileHandle.standardError.write(Data("maccal: max must be a positive integer (--max or config.searchMax)\n".utf8))
             throw ExitCode(1)
         }
         let store = EKEventStore()
@@ -338,12 +436,18 @@ struct SearchCommand: ParsableCommand {
             let out = try runSearch(
                 store: EKCalendarStore(store: store),
                 query: query, json: json, calendars: calendar, scope: searchScope,
-                from: from, to: to, max: max, countOnly: countOnly,
-                color: useColor(noColor: noColor, json: json),
+                from: from, to: to, max: effectiveMax, countOnly: countOnly,
+                color: resolveColor(config, noColor: noColor, json: json),
+                aligned: useTable(json: json),
+                dateStyle: resolveDateStyle(config, iso: iso),
+                long: long || !useTable(json: json),   // pipe/redirect → full id (script-safe), like dates
                 hideCancelled: hideCancelled,
+                hiddenCalendars: config.hiddenCalendars,
+                showAll: all,
                 now: Date(), timeZone: .current
             )
             print(out, terminator: "")
+            emptyNote(out, json: json, "no matches")
         } catch let e as MaccalError {
             FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
             throw ExitCode(1)
@@ -410,6 +514,7 @@ struct AddCommand: ParsableCommand {
     var yes = false
 
     func run() throws {
+        let config = loadConfig()
         let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "add")
         let store = EKEventStore()
         if !dryRun { CalendarAccess.require(store: store, needsWrite: true) }
@@ -417,7 +522,7 @@ struct AddCommand: ParsableCommand {
             let result = try runAdd(
                 store: EKCalendarStore(store: store),
                 title: title, start: start, end: end, duration: duration, allDay: allDay,
-                calendar: calendar, tz: tz, location: location, notes: notes, url: url,
+                calendar: calendar ?? config.defaultCalendar, tz: tz, location: location, notes: notes, url: url,
                 availability: availability, json: json, dryRun: dryRun, confirm: confirmer,
                 now: Date(), timeZone: .current
             )
@@ -493,10 +598,12 @@ struct EditCommand: ParsableCommand {
         let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "edit")
         let store = EKEventStore()
         CalendarAccess.require(store: store, needsWrite: !dryRun) // dry-run only reads
+        let ck = EKCalendarStore(store: store)
+        let resolvedId = try resolveOrExit(id, store: ck)
         do {
             let result = try runEdit(
-                store: EKCalendarStore(store: store),
-                id: id, title: title, start: start, end: end, duration: duration, tz: tz,
+                store: ck,
+                id: resolvedId, title: title, start: start, end: end, duration: duration, tz: tz,
                 location: location, notes: notes, url: url, availability: availability,
                 calendar: calendar,
                 allOccurrences: allOccurrences, json: json, dryRun: dryRun, confirm: confirmer,
@@ -543,10 +650,12 @@ struct RmCommand: ParsableCommand {
         let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "rm")
         let store = EKEventStore()
         CalendarAccess.require(store: store, needsWrite: !dryRun) // dry-run only reads
+        let ck = EKCalendarStore(store: store)
+        let resolvedId = try resolveOrExit(id, store: ck)
         do {
             let result = try runRm(
-                store: EKCalendarStore(store: store),
-                id: id, allOccurrences: allOccurrences, json: json, dryRun: dryRun,
+                store: ck,
+                id: resolvedId, allOccurrences: allOccurrences, json: json, dryRun: dryRun,
                 confirm: confirmer, timeZone: .current
             )
             try emit(result)
@@ -613,6 +722,7 @@ struct SyncCommand: ParsableCommand {
 
     func run() throws {
         if from.isEmpty { throw ValidationError("at least one --from is required") }
+        let config = loadConfig()
         var detail: SyncDetail = [.title, .location]
         if noLocation { detail.remove(.location) }
         if notes { detail.insert(.notes) }
@@ -624,7 +734,7 @@ struct SyncCommand: ParsableCommand {
                 store: EKCalendarStore(store: store),
                 from: from, to: to, since: since, until: until,
                 detail: detail, noDelete: noDelete, json: json, dryRun: dryRun,
-                color: useColor(noColor: noColor, json: json),
+                color: resolveColor(config, noColor: noColor, json: json),
                 confirm: confirmer, now: Date(), timeZone: .current
             )
             try emit(result)
@@ -649,8 +759,9 @@ struct AuthCommand: ParsableCommand {
           $ maccal auth   # a "maccal" dialog appears → click Allow
 
         Grants maccal its own Calendar access, independent of your terminal — run
-        once in an interactive Terminal. Reset with:
-          $ tccutil reset Calendar kr.ikhoon.maccal
+        once in an interactive Terminal. Reset with your install's bundle id:
+          $ tccutil reset Calendar kr.ikhoon.maccal      # standalone CLI
+          $ tccutil reset Calendar kr.ikhoon.maccalbar   # bundled in the menu-bar app
         """
     )
 
@@ -705,7 +816,11 @@ struct ExportCommand: ParsableCommand {
     func run() throws {
         let store = EKEventStore()
         CalendarAccess.require(store: store)
-        guard let ev = EKCalendarStore(store: store).event(id: id) else {
+        let ck = EKCalendarStore(store: store)
+        let resolved = try resolveOrExit(id, store: ck)
+        // A recurring occurrence handle (id@epoch) exports the series anchor.
+        let seriesId = Output.parseOccurrenceHandle(resolved)?.id ?? resolved
+        guard let ev = ck.event(id: seriesId) else {
             FileHandle.standardError.write(Data("maccal: event \(id) not found\n".utf8))
             throw ExitCode(1)
         }
@@ -734,6 +849,9 @@ struct ImportCommand: ParsableCommand {
     @Option(name: .long, help: "Calendar to import into (title or identifier); the default new-event calendar otherwise.")
     var calendar: String?
 
+    @Flag(name: .long, help: "Emit the created events (or the dry-run plan) as JSON.")
+    var json = false
+
     @Flag(name: .long, help: "Show what would be imported; create nothing.")
     var dryRun = false
 
@@ -757,12 +875,14 @@ struct ImportCommand: ParsableCommand {
             text = s
         }
         let drafts = ICS.parse(text, timeZone: .current)
+        let config = loadConfig()
         let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "import")
         let store = EKEventStore()
         CalendarAccess.require(store: store, needsWrite: !dryRun)
         do {
             let result = try runImport(store: EKCalendarStore(store: store), drafts: drafts,
-                                       calendar: calendar, dryRun: dryRun, confirm: confirmer, timeZone: .current)
+                                       calendar: calendar ?? config.defaultCalendar, json: json,
+                                       dryRun: dryRun, confirm: confirmer, timeZone: .current)
             try emit(result)
         } catch let e as MaccalError {
             FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
@@ -804,14 +924,24 @@ struct FreeCommand: ParsableCommand {
     @Option(name: .long, parsing: .singleValue, help: "Calendar to consider (repeatable; default all).")
     var calendar: [String] = []
 
+    @Flag(name: .long, help: "Consider events from calendars hidden via config.hiddenCalendars.")
+    var all = false
+
     @Flag(name: .long, help: "NDJSON output (start/end/minutes).")
     var json = false
+
+    @Flag(name: .customLong("no-color"), help: "Disable ANSI color (also off for pipes, --json, or NO_COLOR).")
+    var noColor = false
+
+    @Flag(name: .customLong("iso"), help: "Force ISO-8601 dates (default: config.dateFormat, 'readable' on a TTY).")
+    var iso = false
 
     func run() throws {
         guard workStart >= 0, workEnd <= 24, workStart < workEnd else {
             FileHandle.standardError.write(Data("maccal: --work-start/--work-end must be 0–24 with start < end\n".utf8))
             throw ExitCode(1)
         }
+        let config = loadConfig()
         let tz = TimeZone.current
         do {
             let window = try DateWindow.window(from: from, to: within, now: Date(), timeZone: tz,
@@ -826,8 +956,13 @@ struct FreeCommand: ParsableCommand {
             let store = EKEventStore()
             CalendarAccess.require(store: store)
             let out = runFree(store: EKCalendarStore(store: store), window: window, minDuration: minDuration,
-                              workStartHour: workStart, workEndHour: workEnd, calendars: calendar, json: json, timeZone: tz)
+                              workStartHour: workStart, workEndHour: workEnd, calendars: calendar,
+                              hiddenCalendars: config.hiddenCalendars, showAll: all,
+                              json: json, color: resolveColor(config, noColor: noColor, json: json),
+                              aligned: useTable(json: json), dateStyle: resolveDateStyle(config, iso: iso),
+                              now: Date(), timeZone: tz)
             print(out, terminator: "")
+            emptyNote(out, json: json, "no free slots in the window")
         } catch let e as MaccalError {
             FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
             throw ExitCode(1)

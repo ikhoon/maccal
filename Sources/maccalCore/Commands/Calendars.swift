@@ -12,7 +12,10 @@ public func runCalendars(
     json: Bool,
     writableOnly: Bool = false,
     sourceFilter: String? = nil,
-    color: Bool = false
+    hiddenCalendars: [String] = [],
+    showAll: Bool = false,
+    color: Bool = false,
+    aligned: Bool = false
 ) -> String {
     var cals = store.calendars()
     if writableOnly {
@@ -20,6 +23,14 @@ public func runCalendars(
     }
     if let sf = sourceFilter, !sf.isEmpty {
         cals = cals.filter { $0.source.localizedCaseInsensitiveContains(sf) }
+    }
+    // Hide-list (config.hiddenCalendars): drop calendars matched by title or
+    // identifier unless `--all`. Applies to both text and JSON so scripts see the
+    // same visible set the human does. Routed through Config.isHidden — the one
+    // matcher — so folding matches agenda/search/free (matchesCalendar) exactly.
+    if !showAll, !hiddenCalendars.isEmpty {
+        let hide = Config(hiddenCalendars: hiddenCalendars)
+        cals = cals.filter { !hide.isHidden(title: $0.title, identifier: $0.calendarIdentifier) }
     }
     // Group by source, then title (case-insensitive) — the order you scan when
     // picking a calendar.
@@ -33,18 +44,22 @@ public func runCalendars(
         return Output.ndjson(cals)
     }
     // Text mode shows the columns useful for selecting a calendar; JSON carries
-    // everything (identifier, sourceType, color).
+    // everything (identifier, sourceType, color). Free-text cells (title, source)
+    // are sanitized so a tab/newline in a calendar or account name can't split or
+    // widen a row. Color, when on, is a leading dot in the calendar's own color;
+    // the hex lives only in --json.
     let rows = cals.map { c -> [String] in
         let rw = c.writable
             ? Output.paint("rw", .green, enabled: color)
             : Output.paint("ro", .yellow, enabled: color)
-        return [
-            Output.paint(c.title, .bold, enabled: color),
-            Output.paint(c.source, .dim, enabled: color),
-            Output.paint(c.type, .dim, enabled: color),
+        var row = [
+            Output.paint(Output.sanitize(c.title), .bold, enabled: color),  // the primary element
+            Output.sanitize(c.source),                                      // default fg — no gray tier
+            Output.sanitize(c.type),
             rw,
-            Output.colorSwatch(c.color, enabled: color),
         ]
+        if color { row.insert(Output.colorDot(c.color), at: 0) }
+        return row
     }
-    return Output.tsv(rows)
+    return Output.table(rows, aligned: aligned)
 }

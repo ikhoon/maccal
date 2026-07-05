@@ -89,12 +89,14 @@ One-way mirror of one or more source calendars into a target calendar over a win
 
 - **Window flags are `--from`/`--to`** (macmail uses `--since`/`--until`). Chosen for clarity; `--since`/`--until`
   aliases could be added later. The upper bound is exclusive, matching macmail's `--until`.
-- **Text mode is the human view; `--json` is the machine contract.** In text mode `agenda`/`search` may append a
-  `(showing M of N …)` trailer to stdout, and `search --json` always emits a final `{"_summary":{…}}` line (even on
-  zero matches). Pipelines should use `--json` (and `search --count-only`); neither carries the human trailer.
+- **Text mode is the human view; `--json` is the machine contract.** When `--max` caps the rows, `agenda`/`search`
+  print a `showing M of N …` truncation notice on **stderr** — stdout carries only the data rows. `search --json`
+  always emits a final `{"_summary":{…}}` line (even on zero matches). Pipelines should use `--json` (and
+  `search --count-only`); stdout never carries a human trailer.
 - **`show <id>` of a recurring event resolves the series anchor**, not the specific occurrence seen in agenda/search —
-  an `eventIdentifier` carries no occurrence date. The record is flagged `recurring: true`. (A future occurrence-
-  qualified token is deferred.)
+  an `eventIdentifier` carries no occurrence date, so the bare `id` stays the series key (flagged `recurring: true`).
+  The specific occurrence *is* now targetable via the `id@epoch` **handle**: shown in the agenda/search last column
+  and emitted as the `handle` field in `--json` (show/edit/rm accept it).
 - **The permission gate and the thin `main.swift` command wiring are untested by design** — they're bound to live TCC
   and `exit()`; the tested logic lives in the pure `run*` functions. See `Permission.swift`.
 

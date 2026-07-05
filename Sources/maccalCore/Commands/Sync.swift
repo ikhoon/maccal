@@ -218,7 +218,14 @@ public func runSync(
         let key = syncKey(srcId: src.id, start: src.start, recurring: src.recurring)
         sourceKeys.insert(key)
         let d = desiredDraft(src)
-        if let existing = syncedByKey[key] {
+        if let existingOcc = syncedByKey[key] {
+            // For a recurring copy, compare against its OWN anchor (the series
+            // master, resolved via event(id:)), not the earliest in-window
+            // occurrence stored in syncedByKey. The desired draft uses the source
+            // ANCHOR start/end, so comparing it to an occurrence start that sits
+            // later in the window never matches — the series would be "changed"
+            // (re-inviting attendees, never converging) on every run.
+            let existing = src.recurring ? (store.event(id: existingOcc.id) ?? existingOcc) : existingOcc
             if src.recurring { existingCopyId[src.id] = existing.id }
             if !upToDate(existing, d) {
                 // A recurring copy is written as the whole series (.futureEvents);
@@ -265,7 +272,7 @@ public func runSync(
         if json {
             return .wrote(Output.jsonLine(SyncSummary(source: sources, target: dst.title, created: 0, updated: 0, deleted: 0, cancelled: 0)))
         }
-        return .wrote("sync: already up to date — \(label) (\(sourceEvents.count) events in window)")
+        return .wrote("sync: already up to date — \(label) (\(sourceEvents.count) events in window)\n")
     }
 
     func plan(_ verb: String) -> String {
@@ -278,7 +285,7 @@ public func runSync(
         return lines.joined(separator: "\n")
     }
 
-    if dryRun { return .dryRun(plan("would sync")) }
+    if dryRun { return .dryRun(plan("would sync") + "\n") }
     guard confirm.confirm(plan("sync") + "\n\nApply these changes to \(dst.title)?") else { return .aborted }
 
     var created = 0, updated = 0, deleted = 0, cancelled = 0
@@ -309,8 +316,8 @@ public func runSync(
     let counts = Output.paint("+\(created) new", .green, enabled: color) + "  "
         + Output.paint("~\(updated) changed", .yellow, enabled: color) + "  "
         + Output.paint("-\(deleted) removed", .red, enabled: color) + "  "
-        + Output.paint("✂\(cancelled) cancelled", .dim, enabled: color)
-    return .wrote("synced: \(label)   \(counts)")
+        + Output.paint("✂\(cancelled) cancelled", .magenta, enabled: color)
+    return .wrote("synced: \(label)   \(counts)\n")
 }
 
 private struct SyncSummary: Encodable {

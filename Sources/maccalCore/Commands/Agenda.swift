@@ -19,7 +19,12 @@ public func runAgenda(
     to: String? = nil,
     max: Int = 20,
     color: Bool = false,
+    aligned: Bool = false,
+    dateStyle: Output.DateStyle = .iso,
+    long: Bool = false,
     hideCancelled: Bool = false,
+    hiddenCalendars: [String] = [],
+    showAll: Bool = false,
     now: Date,
     timeZone: TimeZone = .current
 ) throws -> String {
@@ -27,31 +32,43 @@ public func runAgenda(
         from: from, to: to, now: now, timeZone: timeZone,
         defaultFromDays: 0, defaultSpanDays: 7
     )
-    let all = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    var all = store.events(in: window, calendars: calendars.isEmpty ? nil : calendars)
+    // Hide-list: drop events from hidden calendars unless `--all`, or unless the
+    // user named calendars explicitly (an explicit --calendar means "exactly these").
+    if !showAll, calendars.isEmpty, !hiddenCalendars.isEmpty {
+        all = all.filter { !$0.matchesCalendar(hiddenCalendars) }
+    }
     let events = hideCancelled ? all.filter { $0.status != "canceled" } : all
     let shown = Array(events.prefix(Swift.max(0, max)))
 
     if json {
-        return Output.ndjson(shown) // no _summary for agenda, matching macmail triage
+        return Output.eventsNDJSON(shown) // no _summary for agenda, matching macmail triage
     }
 
+    // Truncation notice goes to stderr so stdout stays clean, parseable rows.
+    if events.count > shown.count {
+        Output.warn("showing \(shown.count) of \(events.count) — narrow filters or raise --max")
+    }
     // The calendar column only earns its width when results span >1 calendar.
     let multiCalendar = Set(shown.map(\.calendar)).count > 1
-    // Columns: when · [calendar] · title · id — the human-readable bits first,
-    // the long id last (use --json for scripting).
+    // Calendar colors for the leading marker dot (color mode only) — ties each
+    // row visually to `calendars`, so the calendar's own color is the one accent.
+    let colorByCal = color ? Dictionary(store.calendars().map { ($0.calendarIdentifier, $0.color) }, uniquingKeysWith: { a, _ in a }) : [:]
+    // Columns: [●] · when · [calendar] · id. Ink & Token: bold title, default fg
+    // for when/calendar (full contrast, no gray tier), cyan for the id — the one
+    // text hue, marking the copyable token (git-style short code; --long/--json
+    // for the full id).
     let rows = shown.map { ev -> [String] in
-        let when = Output.paint(Output.when(ev, timeZone: timeZone), .cyan, enabled: color)
-        let title = Output.sanitize(ev.title)
-        // Recurring rows print an occurrence handle (id@epoch) so edit/rm can target one.
-        let idStr = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
-        let id = Output.paint(idStr, .dim, enabled: color)
-        return multiCalendar
-            ? [when, Output.paint(Output.sanitize(ev.calendar), .dim, enabled: color), title, id]
-            : [when, title, id]
+        let when = Output.when(ev, style: dateStyle, timeZone: timeZone, now: now)
+        let title = Output.paint(Output.sanitize(ev.title), .bold, enabled: color)
+        // Recurring rows carry an occurrence handle (id@epoch) so edit/rm target one.
+        let handle = ev.recurring ? Output.occurrenceHandle(id: ev.id, start: ev.start) : ev.id
+        let idStr = Output.paint(long ? handle : Output.shortId(handle), .cyan, enabled: color)
+        var row = multiCalendar
+            ? [when, Output.sanitize(ev.calendar), title, idStr]
+            : [when, title, idStr]
+        if color { row.insert(Output.colorDot(colorByCal[ev.calendarId] ?? ""), at: 0) }
+        return row
     }
-    var out = Output.tsv(rows)
-    if events.count > shown.count {
-        out += "(showing \(shown.count) of \(events.count) — narrow filters if too many)\n"
-    }
-    return out
+    return Output.table(rows, aligned: aligned)
 }

@@ -15,6 +15,10 @@ public enum ICS {
         s.replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: ";", with: "\\;")
             .replacingOccurrences(of: ",", with: "\\,")
+            // Normalize all line breaks to the escaped \n so no raw CR/LF leaks
+            // into a TEXT value (RFC 5545 forbids unescaped control chars).
+            .replacingOccurrences(of: "\r\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\n")
             .replacingOccurrences(of: "\n", with: "\\n")
     }
 
@@ -142,20 +146,35 @@ public enum ICS {
         return drafts
     }
 
+    /// The zone a floating (non-Z, non-DATE) stamp should be read in: the field's
+    /// TZID param if it resolves, else the reader's fallback zone. Without this a
+    /// `DTSTART;TZID=America/New_York:...` would be read as the reader's local wall
+    /// time — the wrong instant.
+    private static func zone(for field: (params: String, value: String), fallback: TimeZone) -> TimeZone {
+        for part in field.params.split(separator: ";") {
+            let kv = part.split(separator: "=", maxSplits: 1)
+            if kv.count == 2, kv[0].uppercased() == "TZID",
+               let z = TimeZone(identifier: String(kv[1]).trimmingCharacters(in: CharacterSet(charactersIn: "\""))) {
+                return z
+            }
+        }
+        return fallback
+    }
+
     private static func draft(from f: [String: (params: String, value: String)], timeZone tz: TimeZone) -> EventDraft? {
         guard let dtstart = f["DTSTART"] else { return nil }
         let startIsDate = dtstart.params.uppercased().contains("VALUE=DATE") || (dtstart.value.count == 8 && !dtstart.value.contains("T"))
         let start: Date?
         if startIsDate { start = parseDateStamp(dtstart.value, tz) }
         else if dtstart.value.hasSuffix("Z") { start = parseUTCStamp(dtstart.value) }
-        else { start = parseFloatingStamp(dtstart.value, tz) }
+        else { start = parseFloatingStamp(dtstart.value, zone(for: dtstart, fallback: tz)) }
         guard let start else { return nil }
 
         let end: Date
         if let dtend = f["DTEND"] {
             let endIsDate = dtend.params.uppercased().contains("VALUE=DATE") || (dtend.value.count == 8 && !dtend.value.contains("T"))
             let parsed = endIsDate ? parseDateStamp(dtend.value, tz)
-                : (dtend.value.hasSuffix("Z") ? parseUTCStamp(dtend.value) : parseFloatingStamp(dtend.value, tz))
+                : (dtend.value.hasSuffix("Z") ? parseUTCStamp(dtend.value) : parseFloatingStamp(dtend.value, zone(for: dtend, fallback: tz)))
             end = parsed ?? (startIsDate ? cal(tz).date(byAdding: .day, value: 1, to: start)! : start.addingTimeInterval(3600))
         } else {
             end = startIsDate ? cal(tz).date(byAdding: .day, value: 1, to: start)! : start.addingTimeInterval(3600)

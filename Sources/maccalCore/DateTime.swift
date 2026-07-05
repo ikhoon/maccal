@@ -97,12 +97,24 @@ public enum DateTime {
                 return (String(s[..<tIdx]), String(s[s.index(after: tIdx)...]))
             }
         }
-        if let sp = s.firstIndex(of: " ") {
+        // Space form: split at the LAST space, and only when the tail looks like a
+        // clock. A multi-word date ("next monday", "in 3 days", "next week") has a
+        // space but no clock — it must parse whole as a date, not be mis-split into
+        // a bogus "time" part (which used to make add/edit --start reject it).
+        if let sp = s.lastIndex(of: " ") {
             let date = String(s[..<sp]).trimmingCharacters(in: .whitespaces)
             let time = String(s[s.index(after: sp)...]).trimmingCharacters(in: .whitespaces)
-            return date.isEmpty || time.isEmpty ? nil : (date, time)
+            if !date.isEmpty, isClockShaped(time) { return (date, time) }
         }
         return nil
+    }
+
+    /// Cheap shape check (HH:MM or HH:MM:SS, two digits per field). parseClock
+    /// still range-validates; this only decides whether a trailing token is a time.
+    private static func isClockShaped(_ s: String) -> Bool {
+        let parts = s.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2 || parts.count == 3 else { return false }
+        return parts.allSatisfy { $0.count == 2 && $0.allSatisfy(\.isNumber) }
     }
 
     private static func parseDate(_ s: String, original: String, now: Date, timeZone: TimeZone) throws -> Date {
