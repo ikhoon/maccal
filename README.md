@@ -94,8 +94,8 @@ $ mv maccal.app ~/.local/lib/
 $ ln -s ~/.local/lib/maccal.app/Contents/MacOS/maccal ~/.local/bin/maccal
 ```
 
-The `xattr` step is only needed for a manual download (the build is ad-hoc signed,
-not notarized); brew and a local build don't need it.
+The `xattr` step is only needed for a manual download (the build isn't
+notarized); brew and a local build don't need it.
 
 #### From source
 
@@ -119,10 +119,10 @@ $ maccal --help
 
 For the **menu-bar app** from source, `./package.sh --install` builds a universal
 `maccal.app`, installs it to `/Applications`, symlinks the bundled (signed) CLI to
-`~/.local/bin/maccal` (it shares the app's Calendar grant), and launches it. The
-build is ad-hoc signed by default — every rebuild changes the code hash, so macOS
-re-asks for Calendar access; for an iterative local loop set `MACCAL_SIGN_ID` to a
-self-signed keychain identity and the grant survives rebuilds.
+`~/.local/bin/maccal` (it shares the app's Calendar grant), and launches it. Both
+build scripts sign with a stable self-signed certificate when one is in the
+keychain (set `MACCAL_SIGN_ID` to pick one explicitly, ad-hoc otherwise) — a
+stable identity means the Calendar grant survives rebuilds and upgrades.
 
 </details>
 

@@ -22,12 +22,19 @@ cd "$SCRIPT_DIR"
 
 IDENTIFIER="kr.ikhoon.maccalbar"
 VERSION="$(git describe --tags --always)"
-# Code-signing identity. Default "-" = ad-hoc (release / brew artifacts stay
-# cert-free and reproducible). Set MACCAL_SIGN_ID to a keychain codesigning
-# identity (e.g. a self-signed "ikhoon-dev") for LOCAL installs so the Calendar
-# (TCC) grant survives rebuilds — ad-hoc resigns with a new cdhash each build and
-# forces a re-`maccal auth` every time. Notarization is a separate, later step.
-SIGN_ID="${MACCAL_SIGN_ID:--}"
+# Code-signing identity, in order: MACCAL_SIGN_ID override → the shared
+# self-signed "ikhoon-dev" cert when it's in the keychain → ad-hoc "-" (CI /
+# other machines). A STABLE certificate keys the Calendar (TCC) grant to
+# identifier+cert instead of a per-build cdhash, so local rebuilds AND brew
+# upgrades keep the user's grant — ad-hoc re-prompts on every new binary.
+# (Gatekeeper on downloads is unaffected either way; only notarization fixes that.)
+if [ -n "${MACCAL_SIGN_ID:-}" ]; then
+  SIGN_ID="$MACCAL_SIGN_ID"
+elif security find-identity -p codesigning 2>/dev/null | grep -q '"ikhoon-dev"'; then
+  SIGN_ID="ikhoon-dev"
+else
+  SIGN_ID="-"
+fi
 INSTALL=0
 [ "${1:-}" = "--install" ] && INSTALL=1
 
