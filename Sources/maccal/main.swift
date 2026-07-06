@@ -685,13 +685,20 @@ struct SyncCommand: ParsableCommand {
           $ maccal sync --from Meetings --from Reviews --to Mirror --until +14d --yes
           $ maccal sync --from Meetings --to Mirror --notes          # include the body
           $ maccal sync --from Meetings --to Mirror --no-location     # omit the location
+          $ maccal sync --reset --to Mirror --dry-run                # undo: list every copy
+          $ maccal sync --reset --to Mirror --yes                    # …and remove them all
 
         Run it periodically (e.g. a launchd/cron job with --yes) to stay in sync.
+        Done mirroring? --reset removes every copy maccal created in --to (and
+        nothing else) — the mirror is gone, your real events untouched.
         """
     )
 
-    @Option(name: .long, help: "Source calendar to copy FROM — repeatable. \"Account/*\" (whole account), \"Account/Calendar\", or a title/identifier.")
-    var from: [String]
+    @Option(name: .long, help: "Source calendar to copy FROM — repeatable. \"Account/*\" (whole account), \"Account/Calendar\", or a title/identifier. Not used with --reset.")
+    var from: [String] = []
+
+    @Flag(name: .long, help: "Remove every mirrored copy maccal created in --to (undo the mirror); nothing else is touched.")
+    var reset = false
 
     @Option(name: .long, help: "Target calendar to copy INTO (\"Account/Calendar\" or title/id); must be writable.")
     var to: String
@@ -724,6 +731,24 @@ struct SyncCommand: ParsableCommand {
     var noColor = false
 
     func run() throws {
+        if reset {
+            guard from.isEmpty else { throw ValidationError("--reset takes no --from (it removes ALL of maccal's copies in --to)") }
+            let confirmer = try writeConfirmer(yes: yes, dryRun: dryRun, op: "sync --reset")
+            let store = EKEventStore()
+            CalendarAccess.require(store: store, needsWrite: !dryRun)
+            do {
+                let result = try runSyncReset(
+                    store: EKCalendarStore(store: store),
+                    to: to, since: since, until: until, json: json, dryRun: dryRun,
+                    confirm: confirmer, now: Date(), timeZone: .current
+                )
+                try emit(result)
+            } catch let e as MaccalError {
+                FileHandle.standardError.write(Data("maccal: \(e.description)\n".utf8))
+                throw ExitCode(1)
+            }
+            return
+        }
         if from.isEmpty { throw ValidationError("at least one --from is required") }
         let config = loadConfig()
         var detail: SyncDetail = [.title, .location]

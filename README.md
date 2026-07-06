@@ -208,6 +208,8 @@ would sync: Work → Mirror   +3 new  ~0 changed  -0 removed  ✂0 cancelled
 - **Recurring- and cancellation-aware.** A repeating source mirrors as one
   repeating event, not a copy per occurrence — and cancelled occurrences are
   cancelled in the mirror too (that's the `✂` in the tally).
+- **Changed your mind? One line undoes it.** `maccal sync --reset --to Mirror`
+  removes every copy maccal ever created there — and nothing else.
 
 ### Set it and forget it: the menu-bar app
 
@@ -495,6 +497,8 @@ maccal sync --from A --to B --notes --yes                # also copy the body
 maccal sync --from A --to B --no-location --yes          # omit the location
 maccal sync --from A --to B --until +14d --yes           # only the next 2 weeks
 maccal sync --from A --to B --no-delete --yes            # never delete from target
+maccal sync --reset --to B --dry-run                     # undo: list every mirrored copy
+maccal sync --reset --to B --yes                         # …and remove them all
 ```
 
 Default window is today … +30d (override with `--since`/`--until`). Each copy
@@ -504,7 +508,12 @@ running `maccal sync … --yes` — or let the [menu-bar app](#mirror-calendars-
 schedule it for you.
 
 Flags: `--from` (repeatable), `--to`, `--since`/`--until`, `--notes`,
-`--no-location`, `--no-delete`, `--no-color`, `--json`, `--dry-run`, `--yes`.
+`--no-location`, `--no-delete`, `--reset`, `--no-color`, `--json`, `--dry-run`, `--yes`.
+
+**Stopping a mirror:** `--reset --to <target>` deletes every event carrying
+maccal's sync marker in the target (recurring copies as a whole series) and
+touches nothing else. Preview with `--dry-run`; the window defaults to ±2 years
+(`--since`/`--until` to widen).
 
 ---
 
