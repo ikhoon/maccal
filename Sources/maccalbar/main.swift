@@ -49,6 +49,12 @@ enum Settings {
         get { d.bool(forKey: "keepAwake") }
         set { d.set(newValue, forKey: "keepAwake") }
     }
+    /// Background auto-sync paused: the launchd job is removed but sources/
+    /// target stay configured, and manual "Sync now" still works.
+    static var paused: Bool {
+        get { d.bool(forKey: "paused") }
+        set { d.set(newValue, forKey: "paused") }
+    }
 }
 
 // MARK: - installed CLI resolution
@@ -97,9 +103,9 @@ enum BackgroundAgent {
     }
 
     /// Write + (re)load the job for the current settings. No-op (and removes any
-    /// stale job) when sources/target aren't set yet.
+    /// stale job) when sources/target aren't set yet — or while paused.
     static func install() {
-        guard !Settings.sources.isEmpty, !Settings.target.isEmpty else { uninstall(); return }
+        guard !Settings.sources.isEmpty, !Settings.target.isEmpty, !Settings.paused else { uninstall(); return }
         let dict = SyncAgent.launchdPlist(
             maccalPath: resolveMaccalPath(), sources: Settings.sources, target: Settings.target,
             detail: Settings.detail, intervalMinutes: Settings.intervalMinutes)
@@ -626,8 +632,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } else if let r = lastResult {
                 addDisabled(menu, r) // no successful sync yet — show the latest outcome (e.g. an error)
             }
-            addDisabled(menu, "Auto-syncing every \(intervalLabel(Settings.intervalMinutes))",
-                        symbol: "clock.arrow.2.circlepath")
+            if Settings.paused {
+                addDisabled(menu, "Paused — background sync off", symbol: "pause.circle")
+            } else {
+                addDisabled(menu, "Auto-syncing every \(intervalLabel(Settings.intervalMinutes))",
+                            symbol: "clock.arrow.2.circlepath")
+            }
             // show the selected sources → target so they're visible without opening
             // Settings; direction icons distinguish outgoing sources from the target
             let cals = EKEventStore.authorizationStatus(for: .event) == .fullAccess ? availableCalendars() : []
@@ -641,6 +651,11 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(toggleItem("Start at login", symbol: "power", on: LoginItem.isEnabled) {
             LoginItem.set(!LoginItem.isEnabled) // returns the real state after a (maybe failed) register/unregister
+        })
+        menu.addItem(toggleItem("Pause auto-sync", symbol: "pause.circle", on: Settings.paused) {
+            Settings.paused.toggle()
+            BackgroundAgent.install()   // paused → removes the job; resumed → re-registers it
+            return Settings.paused
         })
         menu.addItem(toggleItem("Keep awake for sync", symbol: "cup.and.saucer", on: KeepAwake.isOn) {
             let now = KeepAwake.set(!KeepAwake.isOn) // real assertion state
