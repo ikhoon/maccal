@@ -285,7 +285,26 @@ func availableCalendars() -> [CalendarInfo] {
 /// The stable selector maccal's sync uses: "Account/Calendar" (or the bare title
 /// when the calendar has no account). Stored verbatim in Settings.
 @MainActor
-func calendarSelector(_ c: CalendarInfo) -> String { c.source.isEmpty ? c.title : "\(c.source)/\(c.title)" }
+/// The stored selector for a calendar: its stable `calendarIdentifier`, so a
+/// calendar RENAME can't orphan settings (the old "Account/Title" strings
+/// became unremovable ghosts — invisible in the checkbox list, fatal to the
+/// background sync). The CLI resolves identifiers directly.
+func calendarSelector(_ c: CalendarInfo) -> String { c.calendarIdentifier }
+
+/// Migrate legacy "Account/Title" selectors to identifiers and drop entries
+/// that no longer resolve (ghosts from renames). No-op before Calendar access.
+@MainActor
+func normalizeSettings() {
+    let cals = availableCalendars()
+    guard !cals.isEmpty else { return }          // no access yet — don't wipe anything
+    var seen = Set<String>()
+    let sources = Settings.sources
+        .compactMap { resolveCalendarIdentifier($0, in: cals) }
+        .filter { seen.insert($0).inserted }
+    if sources != Settings.sources { Settings.sources = sources }
+    let target = Settings.target.isEmpty ? "" : (resolveCalendarIdentifier(Settings.target, in: cals) ?? "")
+    if target != Settings.target { Settings.target = target }
+}
 
 /// Calendars grouped by account, both levels sorted — for the grouped-header UI.
 @MainActor
@@ -468,6 +487,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     // MARK: populate
 
     private func reloadSources() {
+        normalizeSettings() // heal ghosts before rendering the checkbox states
         for v in sourceStack.arrangedSubviews {
             sourceStack.removeArrangedSubview(v)
             v.removeFromSuperview()
@@ -583,6 +603,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         statusItem.menu = menu
         requestAccess() // register maccal in the Calendar TCC list up front
+        normalizeSettings() // migrate legacy title selectors → identifiers; drop rename ghosts
         BackgroundAgent.install() // background auto-sync runs whenever sources+target are set
         Settings.keepAwake = KeepAwake.set(Settings.keepAwake) // restore + reconcile with the real assertion state
     }
@@ -609,8 +630,9 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                         symbol: "clock.arrow.2.circlepath")
             // show the selected sources → target so they're visible without opening
             // Settings; direction icons distinguish outgoing sources from the target
-            for s in Settings.sources { addDisabled(menu, shortName(s), symbol: "arrow.down.circle") }
-            addDisabled(menu, shortName(Settings.target), symbol: "arrow.up.circle")
+            let cals = EKEventStore.authorizationStatus(for: .event) == .fullAccess ? availableCalendars() : []
+            for s in Settings.sources { addDisabled(menu, displayName(s, in: cals), symbol: "arrow.down.circle") }
+            addDisabled(menu, displayName(Settings.target, in: cals), symbol: "arrow.up.circle")
         }
         menu.addItem(.separator())
         add(menu, syncing ? "Syncing…" : "Sync now", #selector(syncNow),
@@ -835,6 +857,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func shortName(_ selector: String) -> String {
         selector.split(separator: "/").last.map(String.init) ?? selector
+    }
+
+    /// A selector rendered for humans: the calendar's current title (selectors
+    /// are identifiers now), falling back to the legacy short name.
+    private func displayName(_ selector: String, in cals: [CalendarInfo]) -> String {
+        cals.first(where: { $0.calendarIdentifier == selector })?.title ?? shortName(selector)
     }
 
     private func shortTime(_ date: Date) -> String {

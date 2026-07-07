@@ -2282,6 +2282,23 @@ do {
     c.expect(threwRO, "reset refuses a read-only target")
 }
 
+// MARK: - resolveCalendarIdentifier (settings migration: legacy selectors → ids)
+do {
+    let cals: [CalendarInfo] = [
+        .fixture(title: "Developer eXperience", source: "Developer eXperience", calendarIdentifier: "id-dx"),
+        .fixture(title: "L+ikhoon", source: "LINE", calendarIdentifier: "id-line"),
+        .fixture(title: "Work", source: "Personal", calendarIdentifier: "id-work"),
+        .fixture(title: "Work", source: "Other", calendarIdentifier: "id-work2"),   // duplicate title
+    ]
+    c.eq(resolveCalendarIdentifier("id-line", in: cals), "id-line", "an identifier passes through")
+    c.eq(resolveCalendarIdentifier("LINE/L+ikhoon", in: cals), "id-line", "Account/Title resolves (title may contain '/')")
+    c.eq(resolveCalendarIdentifier("developer experience/DEVELOPER EXPERIENCE", in: cals), "id-dx", "case-insensitive")
+    c.eq(resolveCalendarIdentifier("L+ikhoon", in: cals), "id-line", "bare unique title resolves")
+    c.expect(resolveCalendarIdentifier("LINE/LINE/ikhoon", in: cals) == nil, "a rename ghost resolves to nil (dropped)")
+    c.expect(resolveCalendarIdentifier("Work", in: cals) == nil, "an ambiguous bare title resolves to nil")
+    c.eq(resolveCalendarIdentifier("Personal/Work", in: cals), "id-work", "account disambiguates a duplicate title")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {
