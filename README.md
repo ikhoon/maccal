@@ -577,11 +577,11 @@ record, so background runs show up too).
 
 | Toggle | What it does |
 |---|---|
-| **Pause auto-sync** | Removes the background job but keeps your sources/target; **Sync now** still works. Flip it back to resume the schedule. |
+| **Pause auto-sync** | Removes the background job but keeps your sources/target; **Sync now** still works. The menu-bar icon dims to pause bars while paused. Flip it back to resume the schedule. |
 | **Keep awake for sync** | Holds an `IOPMAssertion` so the Mac won't **idle-sleep** and miss a scheduled sync. *(Closing the lid still sleeps — a macOS limitation.)* |
 | **Start at login** | Registers the app as a login item, so it's back after every reboot. |
 
-Both toggles stay put when clicked, so you can flip several in a row.
+Toggles stay put when clicked, so you can flip several in a row.
 
 ### Why a bundled CLI?
 
