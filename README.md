@@ -513,7 +513,9 @@ Flags: `--from` (repeatable), `--to`, `--since`/`--until`, `--notes`,
 **Stopping a mirror:** `--reset --to <target>` deletes every event carrying
 maccal's sync marker in the target (recurring copies as a whole series) and
 touches nothing else. Preview with `--dry-run`; the window defaults to ±2 years
-(`--since`/`--until` to widen).
+(`--since`/`--until` to widen). If the menu-bar app is running, **Pause
+auto-sync** first — otherwise the scheduled job may recreate the mirror right
+after the reset.
 
 ---
 
@@ -575,6 +577,7 @@ record, so background runs show up too).
 
 | Toggle | What it does |
 |---|---|
+| **Pause auto-sync** | Removes the background job but keeps your sources/target; **Sync now** still works. Flip it back to resume the schedule. |
 | **Keep awake for sync** | Holds an `IOPMAssertion` so the Mac won't **idle-sleep** and miss a scheduled sync. *(Closing the lid still sleeps — a macOS limitation.)* |
 | **Start at login** | Registers the app as a login item, so it's back after every reboot. |
 
