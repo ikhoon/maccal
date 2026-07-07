@@ -2299,6 +2299,20 @@ do {
     c.eq(resolveCalendarIdentifier("Personal/Work", in: cals), "id-work", "account disambiguates a duplicate title")
 }
 
+// MARK: - AppVersion.isNewer (self-update version compare)
+do {
+    c.expect(AppVersion.isNewer("v0.11.0", than: "0.10.0"), "newer minor is an update")
+    c.expect(AppVersion.isNewer("0.10.1", than: "0.10.0"), "newer patch is an update")
+    c.expect(AppVersion.isNewer("1.0.0", than: "0.99.99"), "newer major is an update")
+    c.expect(AppVersion.isNewer("0.10.10", than: "0.10.9"), "numeric compare, not lexical (10 > 9)")
+    c.expect(!AppVersion.isNewer("0.10.0", than: "0.10.0"), "same version is not an update")
+    c.expect(!AppVersion.isNewer("0.9.0", than: "0.10.0"), "older is not an update")
+    c.expect(!AppVersion.isNewer("0.2", than: "0.2.0"), "0.2 equals 0.2.0")
+    c.expect(!AppVersion.isNewer("0.10.0", than: "0.10.0-3-gabc123"), "a dev build past the tag is up to date")
+    c.expect(AppVersion.isNewer("0.11.0", than: "0.10.0-3-gabc123"), "the next tag beats a dev build")
+    c.expect(AppVersion.isNewer("v1.2.3", than: "dev"), "any release beats the 'dev' placeholder")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {

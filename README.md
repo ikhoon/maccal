@@ -552,8 +552,13 @@ Rarely needed — macOS asks for Calendar access automatically on first use. Run
 
 The pitch lives in [Mirror calendars across accounts](#mirror-calendars-across-accounts);
 this is the reference. The menu shows the mirrored sources, the target, the
-last-sync time and tally, plus **About maccal**, **Sync now** (⌘S), **Settings…**
-(⌘,), and the toggles below.
+last-sync time and tally, plus **About maccal**, **Check for Updates…**,
+**Sync now** (⌘S), **Settings…** (⌘,), and the toggles below.
+
+**Check for Updates…** fetches the latest GitHub release and, if it's newer,
+downloads the signed app, checks it was signed by the same key as your copy,
+swaps it in place, and relaunches — no manual re-download. (If you installed via
+`brew install --cask maccal-app`, `brew upgrade` works too.)
 
 ### Settings
 

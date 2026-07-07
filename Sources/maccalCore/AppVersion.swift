@@ -45,4 +45,33 @@ public enum AppVersion {
         else { return nil }
         return v
     }
+
+    /// Whether `candidate` is a strictly newer release than `current`, comparing
+    /// the leading dotted numeric components left to right (missing components
+    /// count as 0). A leading "v" and any git-describe / prerelease suffix
+    /// ("-3-gabc123", "-beta") are ignored, so a dev build past a tag
+    /// ("0.10.0-3-g…") reads as *equal* to that tag (up to date), while the next
+    /// tag ("0.11.0") reads as newer. An unparseable `current` (the "dev"
+    /// placeholder) is 0.0.0, so any real release counts as an update.
+    public static func isNewer(_ candidate: String, than current: String) -> Bool {
+        let a = numericComponents(candidate), b = numericComponents(current)
+        for i in 0..<max(a.count, b.count) {
+            let x = i < a.count ? a[i] : 0, y = i < b.count ? b[i] : 0
+            if x != y { return x > y }
+        }
+        return false
+    }
+
+    /// The leading dotted numeric part of a version string as integers:
+    /// "v0.11.0-3-gabc" → [0, 11, 0]. Stops at the first non-numeric component.
+    private static func numericComponents(_ s: String) -> [Int] {
+        let core = s.hasPrefix("v") ? String(s.dropFirst()) : s
+        let base = core.prefix { $0 != "-" && $0 != "+" }   // drop git-describe / prerelease tail
+        var out: [Int] = []
+        for part in base.split(separator: ".") {
+            guard let n = Int(part) else { break }
+            out.append(n)
+        }
+        return out
+    }
 }

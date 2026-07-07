@@ -14,6 +14,7 @@
 // plist builder lives in maccalCore.SyncAgent and IS covered by maccalCheck.
 
 import AppKit
+import CryptoKit
 import EventKit
 import IOKit.pwr_mgt
 import QuartzCore
@@ -620,6 +621,7 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         // About on top (macOS convention, matching macrec), then a divider.
         add(menu, "About maccal", #selector(showAbout), symbol: "info.circle")
+        add(menu, "Check for Updates…", #selector(checkForUpdates), symbol: "arrow.down.circle")
         menu.addItem(.separator())
         if Settings.sources.isEmpty || Settings.target.isEmpty {
             addDisabled(menu, "Set sources + target in Settings")
@@ -686,6 +688,8 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .credits: credits,
         ])
     }
+
+    @objc private func checkForUpdates() { Updater.checkForUpdates() }
 
     @objc private func openSettings() {
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { requestAccess(); return }
@@ -943,6 +947,245 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(mi)
         return mi
     }
+}
+
+// MARK: - self-update ("Check for Updates…")
+
+/// A user-initiated self-updater. On "Check for Updates…" it resolves the
+/// latest GitHub release, and — if it's newer and the user confirms — downloads
+/// the signed app, checks it was signed by the SAME key as the running app,
+/// swaps the bundle in place, and relaunches. No background polling: it only
+/// runs when the user picks the menu item.
+///
+/// Not notarized (a self-signed personal build), so the trust anchor is
+/// "signed by the same certificate as the copy you're already running" — an
+/// attacker who tampered with the download would need the private key to
+/// re-sign it. HTTPS to github.com covers the transport.
+@MainActor
+enum Updater {
+    static let repo = "ikhoon/maccal"
+    private static var busy = false
+
+    static func checkForUpdates() {
+        guard !busy else { return }   // ignore double-clicks while a check is in flight
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                let latest = try await latestTag()             // "v0.11.0"
+                let current = AppVersion.current               // "0.10.0" (or "dev")
+                guard AppVersion.isNewer(latest, than: current) else {
+                    info("You're up to date", "maccal \(current) is the latest version.")
+                    return
+                }
+                guard confirmUpdate(current: current, latest: strip(latest)) else { return }
+                let progress = ProgressWindow(text: "Downloading maccal \(strip(latest))…")
+                progress.show()
+                defer { progress.close() }
+                let newApp = try await downloadAndStage(tag: latest)
+                try verifySignerMatchesRunningApp(newApp)
+                try relaunchAfterSwap(newApp: newApp)          // quits + relaunches — may not return
+            } catch {
+                fail("Update failed", (error as? UpdateError)?.errorDescription ?? error.localizedDescription)
+            }
+        }
+    }
+
+    // MARK: steps
+
+    /// The latest release tag, read from the `releases/latest` redirect target
+    /// (`…/releases/tag/v0.11.0`). Uses the HTML redirect, not the REST API, so
+    /// it isn't subject to the API's unauthenticated rate limit.
+    private static func latestTag() async throws -> String {
+        var req = URLRequest(url: URL(string: "https://github.com/\(repo)/releases/latest")!)
+        req.httpMethod = "HEAD"
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, let final = http.url,
+              final.path.contains("/releases/tag/") else { throw UpdateError.noRelease }
+        let tag = final.lastPathComponent
+        guard !tag.isEmpty else { throw UpdateError.noRelease }
+        return tag
+    }
+
+    /// Download the menu-bar app zip for `tag` and unpack it into a private temp
+    /// dir; returns the unpacked maccal.app URL.
+    private static func downloadAndStage(tag: String) async throws -> URL {
+        let name = "maccal-menubar-\(tag)-macos-universal.zip"
+        let zipURL = URL(string: "https://github.com/\(repo)/releases/download/\(tag)/\(name)")!
+        let (tmp, resp) = try await URLSession.shared.download(from: zipURL)
+        guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
+            throw UpdateError.download((resp as? HTTPURLResponse)?.statusCode ?? -1)
+        }
+        let stage = FileManager.default.temporaryDirectory
+            .appendingPathComponent("maccal-update-\(tag)", isDirectory: true)
+        try? FileManager.default.removeItem(at: stage)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        let zip = stage.appendingPathComponent(name)
+        try FileManager.default.moveItem(at: tmp, to: zip)
+        try run("/usr/bin/ditto", ["-x", "-k", zip.path, stage.path])   // unpack (ditto zip from package.sh)
+        let app = stage.appendingPathComponent("maccal.app")
+        guard FileManager.default.fileExists(atPath: app.path) else { throw UpdateError.badArchive }
+        return app
+    }
+
+    /// Reject a download that isn't intact, or that's signed by a different key
+    /// than the app we're about to replace. If the running app is ad-hoc (no
+    /// leaf cert) we can't compare, so a valid signature is all we require.
+    private static func verifySignerMatchesRunningApp(_ newApp: URL) throws {
+        try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", newApp.path])
+        guard let mine = leafCertSHA256(Bundle.main.bundleURL) else { return }
+        guard let theirs = leafCertSHA256(newApp) else { throw UpdateError.unsigned }
+        guard mine == theirs else { throw UpdateError.signerMismatch }
+    }
+
+    /// Swap the running bundle for `newApp` and relaunch. A tiny detached shell
+    /// script waits for this process to quit (so the bundle isn't busy), swaps
+    /// it, clears quarantine, and reopens it; it outlives us via launchd.
+    private static func relaunchAfterSwap(newApp: URL) throws {
+        let dest = Bundle.main.bundleURL                       // e.g. /Applications/maccal.app
+        let parent = dest.deletingLastPathComponent().path
+        guard FileManager.default.isWritableFile(atPath: dest.path),
+              FileManager.default.isWritableFile(atPath: parent) else {
+            throw UpdateError.notWritable(dest.path)
+        }
+        let pid = ProcessInfo.processInfo.processIdentifier
+        // No `set -e`: keep the swap conditional and always reopen *something*,
+        // so a failed swap still relaunches the (untouched) old app rather than
+        // leaving the user with nothing running.
+        let script = """
+        #!/bin/sh
+        while /bin/kill -0 \(pid) 2>/dev/null; do /bin/sleep 0.2; done
+        /bin/sleep 0.3
+        if /usr/bin/ditto "\(newApp.path)" "\(dest.path).new"; then
+          /bin/rm -rf "\(dest.path)" && /bin/mv "\(dest.path).new" "\(dest.path)"
+        fi
+        /usr/bin/xattr -dr com.apple.quarantine "\(dest.path)" 2>/dev/null
+        /usr/bin/open "\(dest.path)"
+        """
+        let sh = FileManager.default.temporaryDirectory.appendingPathComponent("maccal-swap.sh")
+        try script.write(to: sh, atomically: true, encoding: .utf8)
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = [sh.path]
+        try p.run()             // do NOT wait — it must outlive this process
+        NSApp.terminate(nil)    // quit so the script can swap the bundle, then it reopens us
+    }
+
+    // MARK: signing helpers
+
+    /// SHA-256 of the leaf signing certificate of an app bundle, or nil when the
+    /// bundle is ad-hoc / unsigned (no certificate to extract).
+    private static func leafCertSHA256(_ app: URL) -> String? {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("maccal-cert-\(app.lastPathComponent)", isDirectory: true)
+        try? FileManager.default.removeItem(at: dir)
+        guard (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil,
+              // codesign writes cert0 (leaf), cert1, … as DER files at this prefix
+              (try? run("/usr/bin/codesign",
+                        ["-d", "--extract-certificates=\(dir.appendingPathComponent("cert").path)", app.path])) != nil,
+              let der = try? Data(contentsOf: dir.appendingPathComponent("cert0"))
+        else { return nil }
+        return SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
+    }
+
+    @discardableResult
+    private static func run(_ tool: String, _ args: [String]) throws -> String {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tool)
+        p.arguments = args
+        let out = Pipe(); p.standardOutput = out; p.standardError = out
+        try p.run()
+        p.waitUntilExit()
+        let s = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard p.terminationStatus == 0 else { throw UpdateError.tool(tool, p.terminationStatus, s) }
+        return s
+    }
+
+    // MARK: UI
+
+    private static func strip(_ tag: String) -> String { tag.hasPrefix("v") ? String(tag.dropFirst()) : tag }
+
+    private static func info(_ title: String, _ msg: String) { alert(title, msg, style: .informational) }
+    private static func fail(_ title: String, _ msg: String) { alert(title, msg, style: .warning) }
+
+    private static func alert(_ title: String, _ msg: String, style: NSAlert.Style) {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert(); a.alertStyle = style
+        a.messageText = title; a.informativeText = msg
+        a.addButton(withTitle: "OK")
+        a.runModal()
+    }
+
+    private static func confirmUpdate(current: String, latest: String) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = "Update available"
+        a.informativeText = "maccal \(latest) is available — you have \(current). "
+            + "Download and install it now? maccal will relaunch."
+        a.addButton(withTitle: "Update & Relaunch")
+        a.addButton(withTitle: "Later")
+        return a.runModal() == .alertFirstButtonReturn
+    }
+
+    enum UpdateError: LocalizedError {
+        case noRelease, badArchive, unsigned, signerMismatch
+        case notWritable(String), download(Int), tool(String, Int32, String)
+        var errorDescription: String? {
+            switch self {
+            case .noRelease:      return "Couldn't find the latest release on GitHub. Check your connection and try again."
+            case .badArchive:     return "The downloaded update didn't contain a valid maccal.app."
+            case .unsigned:       return "The downloaded update isn't code-signed — refusing to install it."
+            case .signerMismatch: return "The downloaded update is signed by a different key than the installed app — refusing to install it."
+            case .notWritable(let p): return "Can't update maccal in place at \(p) (it needs admin rights). Run `brew upgrade --cask maccal-app` instead."
+            case .download(let c):    return "Download failed (HTTP \(c)). The release asset may not be published yet."
+            case .tool(let t, let c, let s):
+                let detail = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(URL(fileURLWithPath: t).lastPathComponent) failed (\(c))\(detail.isEmpty ? "" : ": \(detail)")"
+            }
+        }
+    }
+}
+
+/// A small modal-less progress window (spinner + label) shown while an update
+/// downloads. A menu-bar (LSUIElement) app has no window of its own, so we make
+/// a tiny one just for this.
+@MainActor
+final class ProgressWindow {
+    private let window: NSWindow
+
+    init(text: String) {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 92),
+                         styleMask: [.titled], backing: .buffered, defer: false)
+        w.title = "maccal"
+        w.isReleasedWhenClosed = false
+
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.startAnimation(nil)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(labelWithString: text)
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let content = NSView()
+        content.addSubview(spinner)
+        content.addSubview(label)
+        NSLayoutConstraint.activate([
+            spinner.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+            spinner.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            label.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 12),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -20),
+            label.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+        ])
+        w.contentView = content
+        w.center()
+        window = w
+    }
+
+    func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
+    func close() { window.orderOut(nil) }
 }
 
 // MARK: - entry point
