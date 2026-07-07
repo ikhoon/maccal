@@ -647,15 +647,18 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         add(menu, syncing ? "Syncing…" : "Sync now", #selector(syncNow),
             symbol: "arrow.triangle.2.circlepath", key: "s", enabled: !syncing)
+        // Pause sits right under Sync now — they're the two sync controls; the
+        // group below is app-level toggles.
+        menu.addItem(toggleItem("Pause auto-sync", symbol: "pause.circle", on: Settings.paused) { [weak self] in
+            Settings.paused.toggle()
+            BackgroundAgent.install()   // paused → removes the job; resumed → re-registers it
+            self?.updateIcon()          // tray glyph reflects the paused state
+            return Settings.paused
+        })
         add(menu, "Settings…", #selector(openSettings), symbol: "gearshape", key: ",")
         menu.addItem(.separator())
         menu.addItem(toggleItem("Start at login", symbol: "power", on: LoginItem.isEnabled) {
             LoginItem.set(!LoginItem.isEnabled) // returns the real state after a (maybe failed) register/unregister
-        })
-        menu.addItem(toggleItem("Pause auto-sync", symbol: "pause.circle", on: Settings.paused) {
-            Settings.paused.toggle()
-            BackgroundAgent.install()   // paused → removes the job; resumed → re-registers it
-            return Settings.paused
         })
         menu.addItem(toggleItem("Keep awake for sync", symbol: "cup.and.saucer", on: KeepAwake.isOn) {
             let now = KeepAwake.set(!KeepAwake.isOn) // real assertion state
@@ -768,10 +771,12 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             b.image = NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "syncing…")?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .light))
             b.contentTintColor = .systemBlue
+            b.appearsDisabled = false         // a manual sync can run while paused
             startSpin(b)
         } else {
-            b.image = Self.calendarSyncIcon()
+            b.image = Settings.paused ? Self.pausedSyncIcon() : Self.calendarSyncIcon()
             b.contentTintColor = nil          // back to the standard menu-bar tint
+            b.appearsDisabled = Settings.paused // dimmed while paused, like a disabled item
             stopSpin(b)
         }
     }
@@ -816,6 +821,34 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 NSBezierPath(ovalIn: NSRect(x: cx + dx - dot / 2, y: cy + dy - dot / 2, width: dot, height: dot)).fill()
             }
         }
+        img.unlockFocus()
+        img.isTemplate = true
+        return img
+    }
+
+    /// The paused variant of the tray glyph: the same sync ring, but with pause
+    /// bars in its empty middle instead of the calendar. Together with the
+    /// `appearsDisabled` dim it reads "sync is off" at a glance while keeping
+    /// the icon's footprint (squareLength) and identity.
+    private static func pausedSyncIcon() -> NSImage? {
+        let syncCfg = NSImage.SymbolConfiguration(pointSize: 16, weight: .light)
+        let pauseCfg = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
+        guard let sync = NSImage(systemSymbolName: "arrow.triangle.2.circlepath",
+                                 accessibilityDescription: "maccal — auto-sync paused")?
+                .withSymbolConfiguration(syncCfg),
+              let pause = NSImage(systemSymbolName: "pause", accessibilityDescription: nil)?
+                .withSymbolConfiguration(pauseCfg)
+        else { return nil }
+
+        let size = sync.size
+        let img = NSImage(size: size)
+        img.lockFocus()
+        sync.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1)
+        // pause bars centred in the ring — `pause` is symmetric, so plain
+        // centring lands true (same trick as the calendar square at rest)
+        let origin = NSPoint(x: (size.width - pause.size.width) / 2,
+                             y: (size.height - pause.size.height) / 2)
+        pause.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
         img.unlockFocus()
         img.isTemplate = true
         return img
