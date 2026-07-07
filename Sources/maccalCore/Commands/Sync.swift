@@ -328,3 +328,74 @@ private struct SyncSummary: Encodable {
     let deleted: Int
     let cancelled: Int
 }
+
+/// `maccal sync --reset --to <target>` — remove every mirrored copy maccal ever
+/// created in the target: exactly the events carrying a maccal-sync marker in
+/// their url. Everything else in the target is untouched (the same guarantee as
+/// sync itself, applied in reverse). Recurring copies delete as a whole series.
+///
+/// The window defaults to ±2 years (the marker is per-event, so this is only a
+/// fetch bound — pass --since/--until to widen or narrow it).
+public func runSyncReset(
+    store: CalendarStore,
+    to: String,
+    since: String? = nil,
+    until: String? = nil,
+    json: Bool = false,
+    dryRun: Bool,
+    confirm: Confirmer,
+    now: Date,
+    timeZone: TimeZone = .current
+) throws -> WriteResult {
+    let cals = store.calendars()
+    let dstMatches = try resolveSelectors(to, in: cals)
+    guard dstMatches.count == 1 else { throw WriteError.ambiguousCalendar(to) }
+    let dst = dstMatches[0]
+    guard dst.writable else { throw WriteError.notWritable }
+
+    let window = try DateWindow.window(from: since, to: until, now: now, timeZone: timeZone,
+                                       defaultFromDays: -730, defaultSpanDays: 1460)
+    // A recurring copy expands to one occurrence per date sharing an id — dedupe
+    // so it's listed and deleted once (as the whole series).
+    var seen = Set<String>()
+    let copies = store.events(in: window, calendars: [dst.calendarIdentifier])
+        .filter { parseSyncMarker($0.url) != nil }
+        .filter { seen.insert($0.id).inserted }
+
+    if json, dryRun {
+        struct Plan: Encodable { let action: String; let target: String; let count: Int }
+        return .dryRun(Output.jsonLine(Plan(action: "would-reset", target: dst.title, count: copies.count)))
+    }
+    if copies.isEmpty {
+        if json { return .wrote(Output.jsonLine(ResetSummary(target: dst.title, removed: 0))) }
+        return .wrote("sync reset: no mirrored copies in \(dst.title)\n")
+    }
+
+    // Preview: one line per copy (capped so a huge mirror doesn't flood the
+    // confirm prompt), soonest first.
+    let cap = 20
+    let listed = EventInfo.sortedByStart(copies).prefix(cap).map {
+        "  - \(Output.when($0, timeZone: timeZone))  \(Output.sanitize($0.title))\($0.recurring ? "  (series)" : "")"
+    }
+    var preview = listed.joined(separator: "\n")
+    if copies.count > cap { preview += "\n  … and \(copies.count - cap) more" }
+
+    if dryRun {
+        return .dryRun("would remove \(copies.count) mirrored cop\(copies.count == 1 ? "y" : "ies") from \(dst.title):\n\(preview)\n")
+    }
+    guard confirm.confirm("Remove \(copies.count) mirrored cop\(copies.count == 1 ? "y" : "ies") from \(dst.title)?\n\(preview)\n") else {
+        return .aborted
+    }
+    var removed = 0
+    for c in copies {
+        _ = try store.deleteEvent(id: c.id, span: c.recurring ? .futureEvents : .thisEvent)
+        removed += 1
+    }
+    if json { return .wrote(Output.jsonLine(ResetSummary(target: dst.title, removed: removed))) }
+    return .wrote("sync reset: removed \(removed) mirrored cop\(removed == 1 ? "y" : "ies") from \(dst.title)\n")
+}
+
+private struct ResetSummary: Encodable {
+    let target: String
+    let removed: Int
+}

@@ -2208,6 +2208,80 @@ do {
     c.expect(js.contains("\"meetingUrl\":\"\""), "json meetingUrl is \"\" when absent (schema-stable)")
 }
 
+// MARK: - sync --reset (remove every mirrored copy, nothing else)
+do {
+    let mirror = CalendarInfo.fixture(title: "Mirror", source: "iCloud", calendarIdentifier: "mir")
+    let s1 = agToday.addingTimeInterval(hour)
+    func store() -> FakeCalendarStore {
+        FakeCalendarStore(calendars: [mirror], events: [
+            .fixture(id: "c1", title: "Standup (copy)", calendar: "Mirror", calendarId: "mir",
+                     start: s1, end: s1 + 1800, url: makeSyncMarker(srcId: "S1", start: s1)),
+            .fixture(id: "c2", title: "Review (copy)", calendar: "Mirror", calendarId: "mir",
+                     start: s1 + 3600, end: s1 + 5400, url: makeSyncMarker(srcId: "S2", start: s1 + 3600)),
+            .fixture(id: "real", title: "My own event", calendar: "Mirror", calendarId: "mir",
+                     start: s1 + 7200, end: s1 + 9000),
+        ])
+    }
+
+    // dry-run: lists both copies, deletes nothing
+    let st1 = store()
+    if case .dryRun(let out) = try! runSyncReset(store: st1, to: "Mirror", dryRun: true, confirm: AutoNo(), now: kstNow, timeZone: kst) {
+        c.expect(out.contains("would remove 2 mirrored copies"), "reset dry-run counts the copies")
+        c.expect(out.contains("Standup (copy)") && out.contains("Review (copy)"), "reset dry-run lists the copies")
+        c.expect(!out.contains("My own event"), "reset dry-run ignores unmarked events")
+    } else { c.expect(false, "reset dry-run returns .dryRun") }
+    c.eq(st1.eventList.count, 3, "dry-run deleted nothing")
+
+    // commit: removes exactly the marked copies
+    let st2 = store()
+    if case .wrote(let out) = try! runSyncReset(store: st2, to: "Mirror", dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst) {
+        c.expect(out.contains("removed 2 mirrored copies"), "reset reports removed count")
+    } else { c.expect(false, "reset returns .wrote") }
+    c.eq(st2.eventList.map(\.id), ["real"], "only the unmarked event survives")
+
+    // declined confirm: aborted, nothing deleted
+    let st3 = store()
+    if case .aborted = try! runSyncReset(store: st3, to: "Mirror", dryRun: false, confirm: AutoNo(), now: kstNow, timeZone: kst) {
+        c.expect(true, "declined reset aborts")
+    } else { c.expect(false, "declined reset returns .aborted") }
+    c.eq(st3.eventList.count, 3, "declined reset deleted nothing")
+
+    // empty target: friendly no-op
+    let st4 = FakeCalendarStore(calendars: [mirror], events: [])
+    if case .wrote(let out) = try! runSyncReset(store: st4, to: "Mirror", dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst) {
+        c.expect(out.contains("no mirrored copies"), "empty target reports no copies")
+    } else { c.expect(false, "empty reset returns .wrote") }
+
+    // recurring copy: deleted once, as the whole series
+    let recStore = FakeCalendarStore(calendars: [mirror], events: [
+        .fixture(id: "rc", title: "Weekly (copy)", calendar: "Mirror", calendarId: "mir",
+                 start: s1, end: s1 + 1800, url: makeSyncMarker(srcId: "RS", start: s1), recurring: true),
+        .fixture(id: "rc", title: "Weekly (copy)", calendar: "Mirror", calendarId: "mir",
+                 start: s1 + 7 * day, end: s1 + 7 * day + 1800, url: makeSyncMarker(srcId: "RS", start: s1), recurring: true),
+    ])
+    if case .wrote(let out) = try! runSyncReset(store: recStore, to: "Mirror", dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst) {
+        c.expect(out.contains("removed 1 mirrored copy"), "recurring copy counts once (whole series)")
+    } else { c.expect(false, "recurring reset returns .wrote") }
+    c.expect(recStore.lastSpan == .futureEvents, "recurring copy deleted with .futureEvents span")
+
+    // JSON shapes
+    let st5 = store()
+    if case .dryRun(let js) = try! runSyncReset(store: st5, to: "Mirror", json: true, dryRun: true, confirm: AutoNo(), now: kstNow, timeZone: kst) {
+        c.expect(js.contains("\"action\":\"would-reset\"") && js.contains("\"count\":2"), "reset --json dry-run plan")
+    } else { c.expect(false, "json dry-run returns .dryRun") }
+    let st6 = store()
+    if case .wrote(let js) = try! runSyncReset(store: st6, to: "Mirror", json: true, dryRun: false, confirm: AutoYes(), now: kstNow, timeZone: kst) {
+        c.expect(js.contains("\"removed\":2") && js.contains("\"target\":\"Mirror\""), "reset --json summary")
+    } else { c.expect(false, "json reset returns .wrote") }
+
+    // read-only target refused
+    let ro = CalendarInfo.fixture(title: "ROCal", source: "iCloud", writable: false, calendarIdentifier: "ro1")
+    var threwRO = false
+    do { _ = try runSyncReset(store: FakeCalendarStore(calendars: [ro]), to: "ROCal", dryRun: true, confirm: AutoNo(), now: kstNow, timeZone: kst) }
+    catch { threwRO = true }
+    c.expect(threwRO, "reset refuses a read-only target")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {
