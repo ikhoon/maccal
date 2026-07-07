@@ -399,3 +399,25 @@ private struct ResetSummary: Encodable {
     let target: String
     let removed: Int
 }
+
+/// Resolve a stored calendar selector to a stable `calendarIdentifier`, for
+/// migrating legacy title-based settings. Accepts an identifier (returned
+/// as-is when it exists), a legacy "Account/Title" (split on the FIRST slash,
+/// so titles containing "/" still match), or a bare title — case-insensitive.
+/// Returns nil when nothing (or more than one calendar) matches, so callers
+/// can drop ghost entries left behind by a calendar rename.
+public func resolveCalendarIdentifier(_ selector: String, in cals: [CalendarInfo]) -> String? {
+    if cals.contains(where: { $0.calendarIdentifier == selector }) { return selector }
+    var matches: [CalendarInfo]
+    if let slash = selector.firstIndex(of: "/") {
+        let account = String(selector[..<slash])
+        let title = String(selector[selector.index(after: slash)...])
+        matches = cals.filter {
+            $0.source.localizedCaseInsensitiveCompare(account) == .orderedSame
+                && $0.title.localizedCaseInsensitiveCompare(title) == .orderedSame
+        }
+    } else {
+        matches = cals.filter { $0.title.localizedCaseInsensitiveCompare(selector) == .orderedSame }
+    }
+    return matches.count == 1 ? matches[0].calendarIdentifier : nil
+}
