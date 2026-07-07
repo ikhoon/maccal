@@ -15,6 +15,15 @@ cd "$SCRIPT_DIR"
 
 IDENTIFIER="kr.ikhoon.maccal"
 VERSION="$(git describe --tags --always)"
+# Signing identity — same policy as package.sh: override → shared self-signed
+# cert (stable TCC across upgrades) → ad-hoc fallback.
+if [ -n "${MACCAL_SIGN_ID:-}" ]; then
+  SIGN_ID="$MACCAL_SIGN_ID"
+elif security find-identity -p codesigning 2>/dev/null | grep -q '"ikhoon-dev"'; then
+  SIGN_ID="ikhoon-dev"
+else
+  SIGN_ID="-"
+fi
 
 if ! command -v swift >/dev/null 2>&1; then
   echo "release: swift not found (xcode-select --install)" >&2
@@ -43,8 +52,8 @@ cp "${SCRIPT_DIR}/Info.plist" "${APP}/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION#v}" "${APP}/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION#v}" "${APP}/Contents/Info.plist"
 
-echo "release: codesigning ($IDENTIFIER)…"
-codesign --sign - \
+echo "release: codesigning ($IDENTIFIER, identity: ${SIGN_ID})…"
+codesign --sign "$SIGN_ID" \
   --identifier "$IDENTIFIER" \
   --entitlements "${SCRIPT_DIR}/maccal.entitlements" \
   --force --options runtime \
