@@ -480,6 +480,33 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return l
     }
 
+    /// A small filled swatch in the calendar's own colour, for the sources list
+    /// and the target pop-up — so a calendar is identifiable by colour, the way
+    /// it is in Calendar.app. A hairline ring keeps a near-white calendar visible
+    /// on the window background. Returns nil when the calendar has no colour, so
+    /// callers just omit the swatch. Not a template image — it keeps its colour.
+    private func colorDotImage(_ hex: String, diameter: CGFloat = 10) -> NSImage? {
+        guard let color = NSColor(hex: hex) else { return nil }
+        let size = NSSize(width: diameter, height: diameter)
+        let img = NSImage(size: size)
+        img.lockFocus()
+        let circle = NSBezierPath(ovalIn: NSRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1))
+        color.setFill(); circle.fill()
+        NSColor.separatorColor.setStroke(); circle.lineWidth = 0.5; circle.stroke()
+        img.unlockFocus()
+        img.isTemplate = false // keep the actual colour; don't let a menu tint it
+        return img
+    }
+
+    /// The colour swatch wrapped in a non-stretching image view, for the sources
+    /// checkbox rows.
+    private func colorDot(_ hex: String, diameter: CGFloat = 10) -> NSImageView? {
+        guard let img = colorDotImage(hex, diameter: diameter) else { return nil }
+        let iv = NSImageView(image: img)
+        iv.setContentHuggingPriority(.required, for: .horizontal) // don't stretch in the row stack
+        return iv
+    }
+
     private func formRow(_ title: String, symbol: String, _ control: NSView) -> NSStackView {
         let label = sectionLabel(title, symbol: symbol) // same bold style + icon as the section headers
         let row = NSStackView(views: [label, control])
@@ -516,7 +543,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                 let cb = NSButton(checkboxWithTitle: c.title, target: self, action: #selector(sourceToggled(_:)))
                 cb.state = selected.contains(sel) ? .on : .off
                 cb.identifier = NSUserInterfaceItemIdentifier(sel) // carry the selector for the action
-                let indented = NSStackView(views: [cb]) // indent the calendar under its account header
+                // colour swatch before the checkbox, so the calendar reads by colour
+                let views: [NSView] = colorDot(c.color).map { [$0, cb] } ?? [cb]
+                let indented = NSStackView(views: views) // indent the calendar under its account header
+                indented.spacing = 6
                 indented.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 0)
                 sourceStack.addArrangedSubview(indented)
             }
@@ -535,6 +565,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                 let it = NSMenuItem(title: c.title, action: nil, keyEquivalent: "")
                 it.indentationLevel = 1
                 it.representedObject = sel
+                it.image = colorDotImage(c.color) // colour swatch in the dropdown, matching the sources list
                 menu.addItem(it)
                 if sel == Settings.target { toSelect = it }
             }
@@ -830,29 +861,37 @@ final class AppController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return img
     }
 
-    /// The paused variant of the tray glyph: the same sync ring, but with pause
-    /// bars in its empty middle instead of the calendar. Together with the
-    /// `appearsDisabled` dim it reads "sync is off" at a glance while keeping
-    /// the icon's footprint (squareLength) and identity.
+    /// The paused glyph keeps the calendar — the app's identity — front and
+    /// centre, and *larger* than the small mark tucked inside the resting sync
+    /// ring, then swaps the spinning-arrows ring for a small pause badge in the
+    /// corner. With the `appearsDisabled` dim it reads "calendar sync, paused"
+    /// without shrinking the identity away (the previous version hid the
+    /// calendar behind pause bars, which lost the maccal look). Same canvas as
+    /// the resting glyph so the item width (squareLength) and centring hold.
     private static func pausedSyncIcon() -> NSImage? {
-        let syncCfg = NSImage.SymbolConfiguration(pointSize: 16, weight: .light)
-        let pauseCfg = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold)
-        guard let sync = NSImage(systemSymbolName: "arrow.triangle.2.circlepath",
-                                 accessibilityDescription: "maccal — auto-sync paused")?
-                .withSymbolConfiguration(syncCfg),
-              let pause = NSImage(systemSymbolName: "pause", accessibilityDescription: nil)?
-                .withSymbolConfiguration(pauseCfg)
+        let size = calendarSyncIcon()?.size ?? NSSize(width: 18, height: 18)
+        let calCfg = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        let badgeCfg = NSImage.SymbolConfiguration(pointSize: 9, weight: .regular)
+        guard let cal = NSImage(systemSymbolName: "calendar", accessibilityDescription: "maccal — auto-sync paused")?
+                .withSymbolConfiguration(calCfg),
+              let badge = NSImage(systemSymbolName: "pause.circle.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(badgeCfg)
         else { return nil }
 
-        let size = sync.size
         let img = NSImage(size: size)
         img.lockFocus()
-        sync.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1)
-        // pause bars centred in the ring — `pause` is symmetric, so plain
-        // centring lands true (same trick as the calendar square at rest)
-        let origin = NSPoint(x: (size.width - pause.size.width) / 2,
-                             y: (size.height - pause.size.height) / 2)
-        pause.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
+        // calendar nudged up-left of centre, freeing the lower-right for the badge
+        let cal0 = NSPoint(x: (size.width - cal.size.width) / 2 - 1,
+                           y: (size.height - cal.size.height) / 2 + 1)
+        cal.draw(at: cal0, from: .zero, operation: .sourceOver, fraction: 1)
+        // punch a transparent disc, then drop the filled-circle pause badge into
+        // it, so the badge reads cleanly instead of muddling with the grid lines
+        let b0 = NSPoint(x: size.width - badge.size.width, y: 0)
+        let bRect = NSRect(origin: b0, size: badge.size).insetBy(dx: -0.5, dy: -0.5)
+        NSGraphicsContext.current?.compositingOperation = .clear
+        NSBezierPath(ovalIn: bRect).fill()
+        NSGraphicsContext.current?.compositingOperation = .sourceOver
+        badge.draw(at: b0, from: .zero, operation: .sourceOver, fraction: 1)
         img.unlockFocus()
         img.isTemplate = true
         return img
@@ -1186,6 +1225,19 @@ final class ProgressWindow {
 
     func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
     func close() { window.orderOut(nil) }
+}
+
+extension NSColor {
+    /// Parse the `#RRGGBB` form that `CalendarInfo.color` uses; nil on empty or
+    /// malformed input (so the swatch is simply omitted).
+    fileprivate convenience init?(hex: String) {
+        let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard s.count == 6, let v = Int(s, radix: 16) else { return nil }
+        self.init(srgbRed: CGFloat((v >> 16) & 0xff) / 255,
+                  green: CGFloat((v >> 8) & 0xff) / 255,
+                  blue: CGFloat(v & 0xff) / 255,
+                  alpha: 1)
+    }
 }
 
 // MARK: - entry point
