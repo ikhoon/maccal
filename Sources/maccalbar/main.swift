@@ -1208,15 +1208,21 @@ final class ProgressWindow {
         let label = NSTextField(labelWithString: text)
         label.translatesAutoresizingMaskIntoConstraints = false
 
+        // Spinner + label as one group, centred in the window — otherwise the
+        // group hugs the left edge and reads as off-centre next to the empty
+        // right side.
+        let row = NSStackView(views: [spinner, label])
+        row.orientation = .horizontal
+        row.spacing = 12
+        row.translatesAutoresizingMaskIntoConstraints = false
+
         let content = NSView()
-        content.addSubview(spinner)
-        content.addSubview(label)
+        content.addSubview(row)
         NSLayoutConstraint.activate([
-            spinner.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            spinner.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            label.leadingAnchor.constraint(equalTo: spinner.trailingAnchor, constant: 12),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -20),
-            label.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            row.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            row.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            row.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: 20),
+            row.trailingAnchor.constraint(lessThanOrEqualTo: content.trailingAnchor, constant: -20),
         ])
         w.contentView = content
         w.center()
