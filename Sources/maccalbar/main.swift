@@ -328,6 +328,27 @@ func calendarsByAccount(writableOnly: Bool) -> [(account: String, calendars: [Ca
 
 // MARK: - settings window
 
+/// A source checkbox that rings only its box when focused.
+///
+/// The Settings window makes its first source row the first responder, and with
+/// Full Keyboard Access on that draws a focus ring immediately. A stock checkbox
+/// rings just the small box; a borderless `.toggle` button — which is what the
+/// coloured glyph needs — rings its whole image-plus-title rectangle instead, so
+/// the top row opens wrapped in a blue rounded rect that reads as a selection.
+/// Mask the ring back to the box.
+@MainActor
+private final class SourceCheckbox: NSButton {
+    /// The glyph's rect. Both `image` and `alternateImage` are the same size, so
+    /// this doesn't move when the box is ticked and the mask needs no
+    /// invalidation. Falling back to `bounds` restores the unmasked ring rather
+    /// than dropping it.
+    private var boxRect: NSRect { cell?.imageRect(forBounds: bounds) ?? bounds }
+    override var focusRingMaskBounds: NSRect { boxRect }
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: boxRect, xRadius: 3.5, yRadius: 3.5).fill()
+    }
+}
+
 /// The whole source/target/interval/detail editor. A window (not a menu) so the
 /// sources are checkboxes you can tick several of, and the target/interval/detail
 /// are pop-ups — nothing dismisses on the first click. Every change writes
@@ -339,6 +360,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let targetPopup = NSPopUpButton()
     private let intervalPopup = NSPopUpButton()
     private var detailChecks: [NSButton] = []
+    private var doneButton: NSButton?
 
     private static let intervals: [(tag: Int, label: String)] =
         [(15, "15 minutes"), (30, "30 minutes"), (60, "1 hour"), (120, "2 hours"), (360, "6 hours")]
@@ -357,6 +379,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         win.delegate = self
         let content = buildContent()
         win.contentView = content
+        // With Full Keyboard Access on, AppKit focuses the first control in the
+        // key loop — the top calendar — so the window would open with a source
+        // row ringed before you touch anything. Start on Done, the way a system
+        // dialog does.
+        win.initialFirstResponder = doneButton
         content.layoutSubtreeIfNeeded()
         win.setContentSize(NSSize(width: 400, height: content.fittingSize.height)) // fit height to content
     }
@@ -414,6 +441,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         done.keyEquivalent = "\r"
         done.bezelStyle = .rounded
         done.setContentHuggingPriority(.required, for: .horizontal)
+        doneButton = done // the window's initial first responder
         let doneRow = NSStackView(views: [NSView(), done]) // spacer pushes Done to the right
         doneRow.orientation = .horizontal
 
@@ -550,7 +578,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             return cb
         }
         let blackMark = Contrast.prefersBlackMark(onFill: c.color)
-        let cb = NSButton(title: c.title, target: self, action: #selector(sourceToggled(_:)))
+        let cb = SourceCheckbox(title: c.title, target: self, action: #selector(sourceToggled(_:)))
         cb.setButtonType(.toggle)
         cb.isBordered = false
         cb.image = checkboxImage(color, blackMark: blackMark, on: false)
