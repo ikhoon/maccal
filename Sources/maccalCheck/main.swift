@@ -2313,6 +2313,37 @@ do {
     c.expect(AppVersion.isNewer("v1.2.3", than: "dev"), "any release beats the 'dev' placeholder")
 }
 
+// MARK: - Contrast (tick colour on a Settings source checkbox)
+do {
+    // The band that regressed by eye: white on orange is 2.2:1, well under the
+    // 3:1 floor, so these must take a black tick.
+    c.expect(Contrast.prefersBlackMark(onFill: "#FF9500"), "system orange takes a black tick")
+    c.expect(Contrast.prefersBlackMark(onFill: "#FF8D28"), "orange takes a black tick")
+    c.expect(Contrast.prefersBlackMark(onFill: "#FFCC00"), "yellow takes a black tick")
+    c.expect(Contrast.prefersBlackMark(onFill: "#34C759"), "system green takes a black tick")
+    c.expect(Contrast.prefersBlackMark(onFill: "#9A9CFF"), "pale periwinkle takes a black tick")
+    c.expect(Contrast.prefersBlackMark(onFill: "#FFFFFF"), "white takes a black tick")
+
+    // White is the conventional tick and clears 3:1 on these, so it stays.
+    c.expect(!Contrast.prefersBlackMark(onFill: "#007AFF"), "system blue keeps a white tick")
+    c.expect(!Contrast.prefersBlackMark(onFill: "#0088FF"), "blue keeps a white tick")
+    c.expect(!Contrast.prefersBlackMark(onFill: "#FF3B30"), "system red keeps a white tick")
+    c.expect(!Contrast.prefersBlackMark(onFill: "#AF52DE"), "system purple keeps a white tick")
+    c.expect(!Contrast.prefersBlackMark(onFill: "#000000"), "black keeps a white tick")
+
+    // The 3:1 crossover sits at luminance 0.30 — pin both sides of it.
+    c.expect(!Contrast.prefersBlackMark(onFill: "#8295AF"), "L=0.293 is still white (3.06:1)")
+    c.expect(Contrast.prefersBlackMark(onFill: "#8697B1"), "L=0.310 has crossed over to black")
+
+    c.expect(Contrast.relativeLuminance(hex: "#000000") == 0, "black has zero luminance")
+    c.expect(Contrast.relativeLuminance(hex: "#FFFFFF").map { abs($0 - 1) < 1e-9 } == true,
+             "white has unit luminance")
+    c.expect(Contrast.relativeLuminance(hex: "FF9500") != nil, "a bare hex parses without the leading #")
+    c.expect(Contrast.relativeLuminance(hex: "") == nil, "a colourless calendar has no luminance")
+    c.expect(Contrast.relativeLuminance(hex: "#GGGGGG") == nil, "a malformed colour has no luminance")
+    c.expect(Contrast.relativeLuminance(hex: "#FFF") == nil, "a 3-digit hex is not accepted")
+}
+
 // Live EventKit round-trip — local only, needs a Calendar grant. CI omits the
 // flag and runs the pure suite above. See Integration.swift.
 if CommandLine.arguments.contains("--integration") {
