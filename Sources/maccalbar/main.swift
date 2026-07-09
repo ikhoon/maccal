@@ -328,6 +328,27 @@ func calendarsByAccount(writableOnly: Bool) -> [(account: String, calendars: [Ca
 
 // MARK: - settings window
 
+/// A source checkbox that rings only its box when focused.
+///
+/// The Settings window makes its first source row the first responder, and with
+/// Full Keyboard Access on that draws a focus ring immediately. A stock checkbox
+/// rings just the small box; a borderless `.toggle` button — which is what the
+/// coloured glyph needs — rings its whole image-plus-title rectangle instead, so
+/// the top row opens wrapped in a blue rounded rect that reads as a selection.
+/// Mask the ring back to the box.
+@MainActor
+private final class SourceCheckbox: NSButton {
+    /// The glyph's rect. Both `image` and `alternateImage` are the same size, so
+    /// this doesn't move when the box is ticked and the mask needs no
+    /// invalidation. Falling back to `bounds` restores the unmasked ring rather
+    /// than dropping it.
+    private var boxRect: NSRect { cell?.imageRect(forBounds: bounds) ?? bounds }
+    override var focusRingMaskBounds: NSRect { boxRect }
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: boxRect, xRadius: 3.5, yRadius: 3.5).fill()
+    }
+}
+
 /// The whole source/target/interval/detail editor. A window (not a menu) so the
 /// sources are checkboxes you can tick several of, and the target/interval/detail
 /// are pop-ups — nothing dismisses on the first click. Every change writes
@@ -339,6 +360,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let targetPopup = NSPopUpButton()
     private let intervalPopup = NSPopUpButton()
     private var detailChecks: [NSButton] = []
+    private var doneButton: NSButton?
 
     private static let intervals: [(tag: Int, label: String)] =
         [(15, "15 minutes"), (30, "30 minutes"), (60, "1 hour"), (120, "2 hours"), (360, "6 hours")]
@@ -357,6 +379,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         win.delegate = self
         let content = buildContent()
         win.contentView = content
+        // With Full Keyboard Access on, AppKit focuses the first control in the
+        // key loop — the top calendar — so the window would open with a source
+        // row ringed before you touch anything. Start on Done, the way a system
+        // dialog does.
+        win.initialFirstResponder = doneButton
         content.layoutSubtreeIfNeeded()
         win.setContentSize(NSSize(width: 400, height: content.fittingSize.height)) // fit height to content
     }
@@ -414,6 +441,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         done.keyEquivalent = "\r"
         done.bezelStyle = .rounded
         done.setContentHuggingPriority(.required, for: .horizontal)
+        doneButton = done // the window's initial first responder
         let doneRow = NSStackView(views: [NSView(), done]) // spacer pushes Done to the right
         doneRow.orientation = .horizontal
 
@@ -480,31 +508,86 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         return l
     }
 
-    /// A small filled swatch in the calendar's own colour, for the sources list
-    /// and the target pop-up — so a calendar is identifiable by colour, the way
-    /// it is in Calendar.app. A hairline ring keeps a near-white calendar visible
-    /// on the window background. Returns nil when the calendar has no colour, so
-    /// callers just omit the swatch. Not a template image — it keeps its colour.
+    /// A small filled swatch in the calendar's own colour, for the target pop-up
+    /// — so a calendar is identifiable by colour, the way it is in Calendar.app.
+    /// A hairline ring keeps a near-white calendar visible on the window
+    /// background. Returns nil when the calendar has no colour, so callers just
+    /// omit the swatch. Not a template image — it keeps its colour.
     private func colorDotImage(_ hex: String, diameter: CGFloat = 10) -> NSImage? {
         guard let color = NSColor(hex: hex) else { return nil }
-        let size = NSSize(width: diameter, height: diameter)
-        let img = NSImage(size: size)
-        img.lockFocus()
-        let circle = NSBezierPath(ovalIn: NSRect(origin: .zero, size: size).insetBy(dx: 1, dy: 1))
-        color.setFill(); circle.fill()
-        NSColor.separatorColor.setStroke(); circle.lineWidth = 0.5; circle.stroke()
-        img.unlockFocus()
+        let img = NSImage(size: NSSize(width: diameter, height: diameter), flipped: false) { rect in
+            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
+            color.setFill(); circle.fill()
+            NSColor.separatorColor.setStroke(); circle.lineWidth = 0.5; circle.stroke()
+            return true
+        }
         img.isTemplate = false // keep the actual colour; don't let a menu tint it
         return img
     }
 
-    /// The colour swatch wrapped in a non-stretching image view, for the sources
-    /// checkbox rows.
-    private func colorDot(_ hex: String, diameter: CGFloat = 10) -> NSImageView? {
-        guard let img = colorDotImage(hex, diameter: diameter) else { return nil }
-        let iv = NSImageView(image: img)
-        iv.setContentHuggingPriority(.required, for: .horizontal) // don't stretch in the row stack
-        return iv
+    /// The box glyph for a source checkbox, drawn in the calendar's own colour —
+    /// off is a hollow ring, on is filled with a tick, the way Calendar.app's
+    /// sidebar draws it. The colour lives *in* the box rather than in a swatch
+    /// beside it: a separate dot next to the system checkbox puts two blue marks
+    /// side by side whenever the calendar itself is blue. A hairline edge keeps a
+    /// near-white (or near-black) box off the window background. Built with a
+    /// drawing handler so `separatorColor` re-resolves when the appearance
+    /// changes.
+    private func checkboxImage(_ color: NSColor, blackMark: Bool, on: Bool) -> NSImage {
+        let side: CGFloat = 14
+        let img = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            func box(_ inset: CGFloat) -> NSBezierPath {
+                NSBezierPath(roundedRect: rect.insetBy(dx: inset, dy: inset), xRadius: 3.5, yRadius: 3.5)
+            }
+            if on {
+                color.setFill(); box(0.5).fill()
+                let tick = NSBezierPath()
+                tick.move(to: NSPoint(x: 3.7, y: 7.5))
+                tick.line(to: NSPoint(x: 5.9, y: 5.0))
+                tick.line(to: NSPoint(x: 10.5, y: 9.9))
+                tick.lineWidth = 1.9
+                tick.lineCapStyle = .round
+                tick.lineJoinStyle = .round
+                (blackMark ? NSColor.black : NSColor.white).withAlphaComponent(0.92).setStroke()
+                tick.stroke()
+            } else {
+                let ring = box(0.9)
+                ring.lineWidth = 1.6
+                color.setStroke(); ring.stroke()
+            }
+            NSColor.separatorColor.setStroke()
+            let edge = box(on ? 0.5 : 0.1)
+            edge.lineWidth = 0.5
+            edge.stroke()
+            return true
+        }
+        img.isTemplate = false // keep the actual colour; don't let the button tint it
+        return img
+    }
+
+    /// A source checkbox tinted with the calendar's colour. Falls back to the
+    /// stock system checkbox for a calendar with no colour. `.toggle` (not
+    /// `.switch`) is what lets the custom on/off images through, and it drops the
+    /// checkbox role and value AppKit would otherwise publish — restate both, the
+    /// way `MenuToggleView` does, or VoiceOver reads the row as a plain button
+    /// with no ticked state.
+    private func calendarCheckbox(_ c: CalendarInfo, on: Bool) -> NSButton {
+        guard let color = NSColor(hex: c.color) else {
+            let cb = NSButton(checkboxWithTitle: c.title, target: self, action: #selector(sourceToggled(_:)))
+            cb.state = on ? .on : .off
+            return cb
+        }
+        let blackMark = Contrast.prefersBlackMark(onFill: c.color)
+        let cb = SourceCheckbox(title: c.title, target: self, action: #selector(sourceToggled(_:)))
+        cb.setButtonType(.toggle)
+        cb.isBordered = false
+        cb.image = checkboxImage(color, blackMark: blackMark, on: false)
+        cb.alternateImage = checkboxImage(color, blackMark: blackMark, on: true)
+        cb.imagePosition = .imageLeading
+        cb.state = on ? .on : .off
+        cb.setAccessibilityRole(.checkBox)
+        cb.setAccessibilityValue(on)
+        return cb
     }
 
     private func formRow(_ title: String, symbol: String, _ control: NSView) -> NSStackView {
@@ -540,13 +623,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             sourceStack.addArrangedSubview(groupHeader(group.account))
             for c in group.calendars {
                 let sel = calendarSelector(c)
-                let cb = NSButton(checkboxWithTitle: c.title, target: self, action: #selector(sourceToggled(_:)))
-                cb.state = selected.contains(sel) ? .on : .off
+                let cb = calendarCheckbox(c, on: selected.contains(sel)) // box drawn in the calendar's colour
                 cb.identifier = NSUserInterfaceItemIdentifier(sel) // carry the selector for the action
-                // colour swatch before the checkbox, so the calendar reads by colour
-                let views: [NSView] = colorDot(c.color).map { [$0, cb] } ?? [cb]
-                let indented = NSStackView(views: views) // indent the calendar under its account header
-                indented.spacing = 6
+                let indented = NSStackView(views: [cb]) // indent the calendar under its account header
                 indented.edgeInsets = NSEdgeInsets(top: 0, left: 18, bottom: 0, right: 0)
                 sourceStack.addArrangedSubview(indented)
             }
@@ -565,7 +644,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
                 let it = NSMenuItem(title: c.title, action: nil, keyEquivalent: "")
                 it.indentationLevel = 1
                 it.representedObject = sel
-                it.image = colorDotImage(c.color) // colour swatch in the dropdown, matching the sources list
+                it.image = colorDotImage(c.color) // a menu item can't hold a checkbox, so the colour is a dot here
                 menu.addItem(it)
                 if sel == Settings.target { toSelect = it }
             }
@@ -583,8 +662,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func sourceToggled(_ sender: NSButton) {
         guard let sel = sender.identifier?.rawValue else { return }
+        let on = sender.state == .on
+        // the coloured checkbox is a `.toggle` button, so its ticked state only
+        // reaches VoiceOver if we publish it ourselves on every flip
+        sender.setAccessibilityValue(on)
+        NSAccessibility.post(element: sender, notification: .valueChanged)
         var cur = Settings.sources
-        if sender.state == .on {
+        if on {
             if !cur.contains(sel) { cur.append(sel) }
         } else {
             cur.removeAll { $0 == sel }
