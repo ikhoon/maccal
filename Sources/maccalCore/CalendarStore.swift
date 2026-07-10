@@ -95,7 +95,15 @@ public struct RecurrenceRule: Codable, Sendable, Equatable {
 /// `allDay` flag tells text consumers to render date-only.
 public struct EventInfo: Codable, Sendable, Equatable {
     /// EKEvent.eventIdentifier (the series key for recurring events), or "".
+    /// Device-local: it changes when the event moves calendars, can be rewritten
+    /// by a sync, and differs between two Macs holding the same iCloud event.
+    /// Use it to look an event up here; use `externalId` to name it elsewhere.
     public let id: String
+    /// EKCalendarItem.calendarItemExternalIdentifier — the id the *server*
+    /// assigned, identical on every device that sees the event. A calendar with
+    /// no server (a local one, e.g. Birthdays) passes its own local id through
+    /// here, so it is device-specific for those. "" only for an unsaved event.
+    public let externalId: String
     /// Owning calendar title (a `--calendar` selector value).
     public let calendar: String
     /// Owning calendar identifier — joins back to `calendars --json`.
@@ -126,6 +134,7 @@ public struct EventInfo: Codable, Sendable, Equatable {
 
     public init(
         id: String,
+        externalId: String = "",
         calendar: String,
         calendarId: String,
         title: String,
@@ -144,6 +153,7 @@ public struct EventInfo: Codable, Sendable, Equatable {
         recurrenceRule: RecurrenceRule? = nil
     ) {
         self.id = id
+        self.externalId = externalId
         self.calendar = calendar
         self.calendarId = calendarId
         self.title = title
@@ -249,7 +259,7 @@ extension EventInfo {
     public func applying(_ c: EventChanges) -> EventInfo {
         let resultAllDay = c.allDay ?? allDay
         return EventInfo(
-            id: id, calendar: calendar, calendarId: calendarId,
+            id: id, externalId: externalId, calendar: calendar, calendarId: calendarId,
             title: c.title ?? title,
             start: c.start ?? start,
             end: c.end ?? end,
@@ -270,7 +280,7 @@ extension EventInfo {
     /// runEdit and the stores use this to reflect the move.
     public func movingTo(calendar: String, calendarId: String) -> EventInfo {
         EventInfo(
-            id: id, calendar: calendar, calendarId: calendarId, title: title,
+            id: id, externalId: externalId, calendar: calendar, calendarId: calendarId, title: title,
             start: start, end: end, allDay: allDay, timeZone: timeZone,
             location: location, notes: notes, url: url, status: status,
             availability: availability, organizer: organizer, attendees: attendees,
@@ -282,7 +292,7 @@ extension EventInfo {
     /// preview and by FakeCalendarStore.
     public func detachedOccurrence(at start: Date) -> EventInfo {
         EventInfo(
-            id: id, calendar: calendar, calendarId: calendarId, title: title,
+            id: id, externalId: externalId, calendar: calendar, calendarId: calendarId, title: title,
             start: start, end: start.addingTimeInterval(end.timeIntervalSince(self.start)),
             allDay: allDay, timeZone: timeZone, location: location, notes: notes, url: url,
             status: status, availability: availability, organizer: organizer,

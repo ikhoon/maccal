@@ -155,6 +155,7 @@ extension CalendarInfo {
 extension EventInfo {
     static func fixture(
         id: String = "id",
+        externalId: String = "",
         title: String = "Event",
         calendar: String = "Work",
         calendarId: String = "cal-id",
@@ -173,7 +174,7 @@ extension EventInfo {
         recurrenceRule: RecurrenceRule? = nil
     ) -> EventInfo {
         EventInfo(
-            id: id, calendar: calendar, calendarId: calendarId, title: title,
+            id: id, externalId: externalId, calendar: calendar, calendarId: calendarId, title: title,
             start: start, end: end, allDay: allDay, timeZone: timeZone,
             location: location, notes: notes, url: url, status: status,
             availability: availability, organizer: organizer,

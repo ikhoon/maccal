@@ -778,6 +778,16 @@ maccal.app (menu-bar)
 - **Sync only ever touches its own copies.** Each mirrored event carries a hidden
   marker in its URL (`maccal-sync://<epoch>/<srcId>`), so re-runs add/update/delete
   exactly maccal's copies and never your real events in the target.
+- **The marker names the source by its server id**, not by EventKit's
+  `eventIdentifier` — that one is device-local, so two Macs signed into the same
+  iCloud account each read the other's copies as orphans and delete them. Keying
+  on the server id lets both Macs converge on the same copy, and copies written by
+  an older maccal are recognised as they are, not rewritten. Two caveats: a source
+  with no server (a *local* calendar, e.g. Birthdays) has only a device-local id,
+  so mirroring it from two Macs still churns; and a Mac still running maccal
+  < 0.12 will keep recreating copies until it too is upgraded. Simplest is to run
+  the background sync on **one** Mac — the target is an iCloud calendar, so the
+  result reaches your other devices on its own.
 - **Recurring series resolve to their anchor.** An `eventIdentifier` carries no
   occurrence date, so a bare series id needs `--all-occurrences` — while the
   `id@epoch` handle printed by agenda/search pins the single occurrence you saw,
