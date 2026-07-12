@@ -160,7 +160,7 @@ do {
     let obj = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
     let keys = Set((obj ?? [:]).keys)
     let expected: Set<String> = [
-        "id", "calendar", "calendarId", "title", "start", "end", "allDay", "timeZone",
+        "id", "externalId", "calendar", "calendarId", "title", "start", "end", "allDay", "timeZone",
         "location", "notes", "url", "status", "availability", "organizer", "attendees", "recurring",
     ]
     c.eq(keys, expected, "every EventInfo key is always present")
@@ -1124,8 +1124,8 @@ do {
     return FakeCalendarStore(calendars: [work, personal], events: events, defaultCalendar: personal)
 }
 @MainActor func srcEvent(_ id: String, _ title: String, _ offsetHours: Double,
-                         location: String = "", notes: String = "") -> EventInfo {
-    EventInfo.fixture(id: id, title: title, calendar: "Work", calendarId: "cal-work",
+                         location: String = "", notes: String = "", externalId: String = "") -> EventInfo {
+    EventInfo.fixture(id: id, externalId: externalId, title: title, calendar: "Work", calendarId: "cal-work",
                       start: agToday.addingTimeInterval(offsetHours * hour),
                       end: agToday.addingTimeInterval((offsetHours + 1) * hour),
                       location: location, notes: notes)
@@ -1148,6 +1148,173 @@ do {
     c.eq(p?.start, agToday.addingTimeInterval(hour), "sync marker round-trips start")
     c.expect(parseSyncMarker("https://example.com/x") == nil, "non-marker url → nil")
     c.expect(parseSyncMarker("") == nil, "empty url → nil")
+}
+
+// MARK: - the marker names the source by its SERVER id, not a device-local one
+//
+// EKEvent.eventIdentifier is "<device-local UUID>:<calendarItemExternalIdentifier>",
+// so two Macs hold different ids for the same iCloud event. Keying copies on it
+// made each Mac read the other's copies as orphans and delete them.
+let uuidA = "11111111-2222-3333-4444-555555555555"   // "the MacBook"
+let uuidB = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"   // "the Mac mini"
+do {
+    c.eq(dropDeviceUUID("\(uuidA):EXT1"), "EXT1", "a v1 marker's device-local UUID half is dropped")
+    c.eq(dropDeviceUUID("\(uuidB):EXT1"), "EXT1", "so both Macs decode it to the same key")
+    c.eq(dropDeviceUUID("\(uuidA.uppercased()):EXT1"), "EXT1",
+         "EventKit renders its UUIDs uppercase — that must strip too")
+    c.eq(dropDeviceUUID("EXT1"), "EXT1", "a bare id passes through")
+    c.eq(dropDeviceUUID(""), "", "an empty id stays empty")
+    c.eq(dropDeviceUUID("urn:uuid:9"), "urn:uuid:9", "a non-UUID prefix is not a device id — keep it whole")
+    c.eq(dropDeviceUUID("\(uuidA):urn:uuid:9"), "urn:uuid:9", "only the first colon splits")
+    c.eq(dropDeviceUUID("\(uuidA):\(uuidB):tail"), "\(uuidB):tail",
+         "exactly one UUID goes: a server id may itself start with one")
+    c.eq(dropDeviceUUID("zzzzzzzz-bbbb-cccc-dddd-eeeeeeeeeeee:E"),
+         "zzzzzzzz-bbbb-cccc-dddd-eeeeeeeeeeee:E", "a UUID-shaped but non-hex prefix is not stripped")
+    c.eq(dropDeviceUUID("\(uuidA)-extra:E"), "\(uuidA)-extra:E", "a longer prefix is not a UUID")
+
+    c.eq(stableSourceKey(srcEvent("\(uuidA):EXT1", "Standup", 1, externalId: "EXT1")), "EXT1",
+         "the server id names the source")
+    c.eq(stableSourceKey(srcEvent("\(uuidA):EXT2", "Standup", 1)), "EXT2",
+         "with no server id, fall back to the stable half of the local id")
+    c.eq(stableSourceKey(srcEvent("local-only", "Unsaved", 1)), "local-only",
+         "an id with no UUID prefix and no server id is used as-is")
+
+    // A v2 marker holds the key verbatim, so a server id shaped like a device id
+    // survives the round trip. Stripping on read but not on write would make the
+    // copy churn on every run — on one Mac, forever.
+    let odd = "\(uuidB):R1"                       // a server id that *looks* device-local
+    let e = srcEvent("\(uuidA):\(odd)", "Standup", 1, externalId: odd)
+    c.eq(stableSourceKey(e), odd, "a UUID-shaped server id is not mangled")
+    c.eq(parseSyncMarker(makeSyncMarker(srcId: stableSourceKey(e), start: agToday))?.srcId, odd,
+         "…and a marker written from it reads back unchanged")
+    // the v1 marker for that same event still decodes to the same key
+    c.eq(parseSyncMarker("maccal-sync://\(Int(agToday.timeIntervalSinceReferenceDate.rounded()))/"
+            + "\(uuidA):\(odd)".addingPercentEncoding(withAllowedCharacters: .alphanumerics)!)?.srcId,
+         odd, "a v1 marker drops one UUID and lands on the same key")
+}
+
+/// A marker in the pre-v2 form: no version tag, srcId = the writing Mac's
+/// EKEvent.eventIdentifier. This is what copies in a real calendar still carry.
+@MainActor func v1Marker(srcId: String, start: Date) -> String {
+    let epoch = Int(start.timeIntervalSinceReferenceDate.rounded())
+    let enc = srcId.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? srcId
+    return "maccal-sync://\(epoch)/\(enc)"
+}
+
+@MainActor func targetCopy(id: String, marker: String, _ title: String, _ offsetHours: Double) -> EventInfo {
+    EventInfo.fixture(id: id, title: title, calendar: "Personal", calendarId: "cal-personal",
+                      start: agToday.addingTimeInterval(offsetHours * hour),
+                      end: agToday.addingTimeInterval((offsetHours + 1) * hour), url: marker)
+}
+
+do {
+    // The incident: a copy the MacBook wrote, met by the Mac mini. The mini's own
+    // id for the same event differs, so before this fix it deleted the copy and
+    // created its own — and the MacBook did the same back, every 30 minutes.
+    // Assert on the copy's identity, not just the count: delete+recreate is
+    // count-neutral and would slip past a `copies.count == 1` check.
+    let start = agToday.addingTimeInterval(hour)
+    for (label, marker) in [("v1", v1Marker(srcId: "\(uuidA):EXT1", start: start)),
+                            ("v2", makeSyncMarker(srcId: "EXT1", start: start))] {
+        let s = syncStore([
+            srcEvent("\(uuidB):EXT1", "Standup", 1, externalId: "EXT1"),
+            targetCopy(id: "the-copy", marker: marker, "Standup", 1),
+        ])
+        let r = try! syncRun(s)
+        c.expect(r.output.contains("up to date"), "the other Mac's \(label) copy is recognised, not replaced")
+        let copies = syncedCopies(s)
+        c.eq(copies.count, 1, "no second copy of the same event appears (\(label))")
+        c.eq(copies.first?.id, "the-copy", "the copy is matched in place, not deleted and recreated (\(label))")
+    }
+}
+
+do {
+    // Same shape, one machine: a copy written by an older maccal (marker = this
+    // Mac's own eventIdentifier) still matches, so upgrading rewrites nothing.
+    let s = syncStore([
+        srcEvent("\(uuidB):EXT1", "Standup", 1, externalId: "EXT1"),
+        targetCopy(id: "the-copy", marker: v1Marker(srcId: "\(uuidB):EXT1", start: agToday.addingTimeInterval(hour)),
+                   "Standup", 1),
+    ])
+    let r = try! syncRun(s)
+    c.expect(r.output.contains("up to date"), "a legacy marker written by this Mac still matches")
+    c.eq(syncedCopies(s).first?.id, "the-copy", "upgrading neither duplicates nor recreates the copy")
+}
+
+do {
+    // Deletion still works: a copy whose source is gone is an orphan.
+    let s = syncStore([
+        srcEvent("\(uuidB):EXT1", "Standup", 1, externalId: "EXT1"),
+        targetCopy(id: "live", marker: v1Marker(srcId: "\(uuidA):EXT1", start: agToday.addingTimeInterval(hour)),
+                   "Standup", 1),
+        targetCopy(id: "orphan", marker: v1Marker(srcId: "\(uuidA):EXT9", start: agToday.addingTimeInterval(5 * hour)),
+                   "Deleted at the source", 5),
+    ])
+    let r = try! syncRun(s)
+    c.expect(r.performed, "a real orphan is still removed")
+    let copies = syncedCopies(s)
+    c.eq(copies.count, 1, "only the orphan goes")
+    c.eq(copies.first?.id, "live", "the live copy survives untouched")
+}
+
+do {
+    // A recurring series, mirrored from the other Mac. The copy must be matched
+    // by its server id while EventKit lookups still use this Mac's local id — a
+    // swap of the two silently stops occurrence-cancellation from reconciling.
+    let daily = RecurrenceRule(frequency: .daily)
+    let anchor = agToday.addingTimeInterval(hour)
+    let series = EventInfo.fixture(id: "\(uuidB):RSER", externalId: "RSER", title: "Standup",
+                                   calendar: "Work", calendarId: "cal-work",
+                                   start: anchor, end: anchor + hour,
+                                   recurring: true, recurrenceRule: daily)
+    let copy = EventInfo.fixture(id: "copy-R", title: "Standup", calendar: "Personal", calendarId: "cal-personal",
+                                 start: anchor, end: anchor + hour,
+                                 url: v1Marker(srcId: "\(uuidA):RSER", start: anchor),
+                                 recurring: true, recurrenceRule: daily)
+    let s = syncStore([series, copy])
+    let w1 = anchor + day, w2 = anchor + 2 * day, w3 = anchor + 3 * day
+    s.seriesOccurrenceDates["\(uuidB):RSER"] = [w1, w3]   // w2 cancelled at the source
+    s.seriesOccurrenceDates["copy-R"] = [w1, w2, w3]
+    let r = try! syncRun(s)
+    c.expect(r.output.contains("cancelled"), "the recurring copy reconciles despite the local/server id split")
+    let win = DateInterval(start: agToday, end: agToday.addingTimeInterval(30 * day))
+    c.expect(!s.seriesOccurrences(id: "copy-R", in: win).contains(w2),
+             "the occurrence cancelled at the source is cancelled on the other Mac's copy")
+    c.eq(syncedCopies(s).first?.id, "copy-R", "the recurring copy is matched, not recreated")
+}
+
+do {
+    // One meeting reachable through two source calendars (invited to a shared
+    // calendar, delegate access, one .ics subscribed twice) shares a server id.
+    // Mirror it once, and always keep the calendar named first in --from.
+    let work = CalendarInfo.fixture(title: "Work", calendarIdentifier: "cal-work")
+    let team = CalendarInfo.fixture(title: "Team", calendarIdentifier: "cal-team")
+    let personal = CalendarInfo.fixture(title: "Personal", calendarIdentifier: "cal-personal")
+    func store() -> FakeCalendarStore {
+        FakeCalendarStore(calendars: [work, team, personal], events: [
+            EventInfo.fixture(id: "zzz-in-work", externalId: "EXT1", title: "All-hands",
+                              calendar: "Work", calendarId: "cal-work",
+                              start: agToday + hour, end: agToday + 2 * hour, location: "Room 4F"),
+            EventInfo.fixture(id: "aaa-in-team", externalId: "EXT1", title: "All-hands",
+                              calendar: "Team", calendarId: "cal-team",
+                              start: agToday + hour, end: agToday + 2 * hour, location: "Room 9F"),
+        ], defaultCalendar: personal)
+    }
+    @MainActor func run(_ s: FakeCalendarStore, from: [String]) throws -> WriteResult {
+        try runSync(store: s, from: from, to: "Personal", since: nil, until: nil,
+                    detail: .titleTimeLocation, noDelete: false, json: false, dryRun: false,
+                    confirm: AutoYes(), now: kstNow, timeZone: kst)
+    }
+    let s1 = store()
+    _ = try! run(s1, from: ["Work", "Team"])
+    c.eq(syncedCopies(s1).count, 1, "a meeting seen through two calendars mirrors once")
+    c.eq(syncedCopies(s1).first?.location, "Room 4F", "--from order picks the winner, not the event id")
+    c.expect(try! run(s1, from: ["Work", "Team"]).output.contains("up to date"),
+             "and the second run has nothing to do")
+
+    let s2 = store()
+    _ = try! run(s2, from: ["Team", "Work"])
+    c.eq(syncedCopies(s2).first?.location, "Room 9F", "reversing --from reverses the winner")
 }
 
 do {

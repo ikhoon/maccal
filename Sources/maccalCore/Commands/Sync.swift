@@ -12,6 +12,10 @@
 // same source occurrence, so it converges to exactly one). Only marker-bearing
 // events in the target are ever touched; the user's own events are left alone.
 //
+// <srcId> is the source's SERVER id (see stableSourceKey), never its device-local
+// eventIdentifier — otherwise two Macs mirroring the same iCloud calendars each
+// read the other's copies as orphans and delete them, forever.
+//
 // A recurring source series is mirrored as ONE rule-bearing event (its anchor
 // start/end + recurrence rule), keyed by source id alone — not one copy per
 // occurrence (which would flood the target and trigger an invite mail each).
@@ -45,23 +49,75 @@ public struct SyncDetail: OptionSet, Sendable, Equatable {
 }
 
 private let syncScheme = "maccal-sync"
+/// Marker generation. v1 (untagged) named the source by `EKEvent.eventIdentifier`;
+/// v2 names it by the server id. Tagging the url means a marker we wrote is read
+/// back verbatim — never guessed at — while a v1 marker is decoded by the one
+/// rule that was ever true of it.
+private let markerVersion = "v2"
 
 /// Hidden marker stored in a copied event's url, naming the source occurrence
-/// (event id + start). Percent-encoded so it's a valid URL EventKit will keep.
+/// (source key + start). Percent-encoded so it's a valid URL EventKit will keep.
 public func makeSyncMarker(srcId: String, start: Date) -> String {
     let epoch = Int(start.timeIntervalSinceReferenceDate.rounded())
     let enc = srcId.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? srcId
-    return "\(syncScheme)://\(epoch)/\(enc)"
+    return "\(syncScheme)://\(markerVersion)/\(epoch)/\(enc)"
 }
 
-/// Parse a copied event's url back into (srcId, start); nil when not a marker.
+/// Names a source occurrence in a marker, identically on every Mac.
+///
+/// `EventInfo.id` (EKEvent.eventIdentifier) cannot be used. EventKit documents it
+/// as changing when the event moves calendars or when a sync rewrites it, and on
+/// macOS it is observably `<device-local UUID>:<externalId>` — so two Macs hold
+/// different ids for one iCloud event, each reads the other's copies as orphans,
+/// and they delete each other's work on every run.
+///
+/// `externalId` is the id EventKit offers "to reference the same event across
+/// multiple devices". Two documented limits, neither reached here: it differs
+/// between iOS and macOS for Exchange calendars (maccal is macOS-only), and a
+/// calendar with no server — a local one, Birthdays — passes its *local* id
+/// through, so those events stay device-local whatever we key on.
+public func stableSourceKey(_ e: EventInfo) -> String {
+    e.externalId.isEmpty ? dropDeviceUUID(e.id) : e.externalId
+}
+
+/// Recover the source key from a v1 marker, which stored an `eventIdentifier`:
+/// `<device-local UUID>:<externalId>`. Exactly one UUID segment is dropped, so an
+/// `externalId` that itself begins with one — or holds further colons, as
+/// `urn:uuid:…` does — survives intact.
+///
+/// Never applied to a v2 marker, which holds the key verbatim. Keeping this
+/// heuristic off our own writes is what makes the key a fixed point: were a
+/// server id ever shaped `<UUID>:tail`, stripping on read but not on write would
+/// desync the two sides and churn that copy on every single run.
+public func dropDeviceUUID(_ srcId: String) -> String {
+    let parts = srcId.split(separator: ":", maxSplits: 1)
+    guard parts.count == 2, isUUID(parts[0]) else { return srcId }
+    return String(parts[1])
+}
+
+/// 8-4-4-4-12 hex, the shape of an EventKit local identifier. Foundation renders
+/// them uppercase; accept either case.
+private func isUUID(_ s: Substring) -> Bool {
+    let groups = s.split(separator: "-", omittingEmptySubsequences: false)
+    guard groups.count == 5, groups.map(\.count) == [8, 4, 4, 4, 12] else { return false }
+    return groups.allSatisfy { $0.allSatisfy(\.isHexDigit) }
+}
+
+/// Parse a copied event's url into the source key it names and that occurrence's
+/// start; nil when the url isn't a marker. A v1 marker decodes to the same key a
+/// v2 one carries, so copies written by an older maccal — or by this maccal on
+/// another Mac — keep matching, and never need their marker rewritten (which sync
+/// couldn't do anyway: `upToDate` doesn't compare the url).
 public func parseSyncMarker(_ url: String) -> (srcId: String, start: Date)? {
     let prefix = "\(syncScheme)://"
     guard url.hasPrefix(prefix) else { return nil }
-    let parts = url.dropFirst(prefix.count).split(separator: "/", maxSplits: 1)
+    var rest = url.dropFirst(prefix.count)
+    let isV2 = rest.hasPrefix("\(markerVersion)/")
+    if isV2 { rest = rest.dropFirst(markerVersion.count + 1) }
+    let parts = rest.split(separator: "/", maxSplits: 1)
     guard parts.count == 2, let epoch = Double(parts[0]) else { return nil }
-    let srcId = String(parts[1]).removingPercentEncoding ?? String(parts[1])
-    return (srcId, Date(timeIntervalSinceReferenceDate: epoch))
+    let raw = String(parts[1]).removingPercentEncoding ?? String(parts[1])
+    return (isV2 ? raw : dropDeviceUUID(raw), Date(timeIntervalSinceReferenceDate: epoch))
 }
 
 /// Occurrence key (id + rounded start). Non-recurring occurrences of the same
@@ -146,7 +202,20 @@ public func runSync(
     let window = try DateWindow.window(from: since, to: until, now: now, timeZone: timeZone,
                                        defaultFromDays: 0, defaultSpanDays: 30)
 
+    // One meeting can be reachable through two source calendars at once (invited
+    // to an event on a calendar shared with you, delegate access, one .ics
+    // subscribed twice) — EventKit says as much, and tells you to pick between
+    // the copies "based on other factors, such as the calendar". Walk the sources
+    // in --from order so the winner of that dedupe is the calendar the user named
+    // first, and doesn't flip between runs with the (unstable) event id.
+    let srcRank = Dictionary(uniqueKeysWithValues: srcIds.enumerated().map { ($1, $0) })
     let sourceEvents = store.events(in: window, calendars: srcIds)
+        .enumerated()
+        .sorted {
+            let a = srcRank[$0.element.calendarId] ?? .max, b = srcRank[$1.element.calendarId] ?? .max
+            return a != b ? a < b : $0.offset < $1.offset   // stable within a calendar
+        }
+        .map(\.element)
     let targetEvents = store.events(in: window, calendars: [dst.calendarIdentifier])
 
     // Index previously-synced copies by source key. Extra copies of the same
@@ -162,6 +231,8 @@ public func runSync(
         // get queued for deletion — the first delete drops the whole series, and
         // the rest then fail "event not found".
         if t.recurring, !seenSeries.insert(t.id).inserted { continue }
+        // m.srcId is already the source key: parseSyncMarker decodes a v1 marker
+        // (from an older maccal, or from the user's other Mac) into the same key.
         let key = syncKey(srcId: m.srcId, start: m.start, recurring: t.recurring)
         if syncedByKey[key] == nil { syncedByKey[key] = t } else { duplicates.append(t) }
     }
@@ -178,7 +249,7 @@ public func runSync(
             timeZoneId: s.allDay ? nil : s.timeZone,
             location: detail.showsLocation ? s.location : "",
             notes: detail.showsNotes ? s.notes : "",
-            url: makeSyncMarker(srcId: s.id, start: s.start),
+            url: makeSyncMarker(srcId: stableSourceKey(s), start: s.start),
             availability: avail,
             recurrenceRule: s.recurrenceRule
         )
@@ -194,8 +265,9 @@ public func runSync(
 
     var sourceKeys = Set<String>()
     var handledRecurring = Set<String>()
-    var recurringSourceIds: [String] = []       // recurring series ids that were synced
-    var existingCopyId: [String: String] = [:]  // recurring source id -> its existing copy id
+    // (local id for EventKit lookups, stable key for matching copies) per series
+    var recurringSources: [(localId: String, stable: String)] = []
+    var existingCopyId: [String: String] = [:]  // stable source key -> its existing copy id
     var toCreate: [EventDraft] = []
     var toUpdate: [(id: String, changes: EventChanges, draft: EventDraft, span: WriteSpan)] = []
     for s in sourceEvents {
@@ -214,9 +286,12 @@ public func runSync(
         } else {
             src = s
         }
-        if src.recurring { recurringSourceIds.append(src.id) }
-        let key = syncKey(srcId: src.id, start: src.start, recurring: src.recurring)
-        sourceKeys.insert(key)
+        let stable = stableSourceKey(src)
+        let key = syncKey(srcId: stable, start: src.start, recurring: src.recurring)
+        // Two apparitions of one meeting share a server id, so mirror it once
+        // rather than making a second copy that then reads as a duplicate.
+        guard sourceKeys.insert(key).inserted else { continue }
+        if src.recurring { recurringSources.append((src.id, stable)) }
         let d = desiredDraft(src)
         if let existingOcc = syncedByKey[key] {
             // For a recurring copy, compare against its OWN anchor (the series
@@ -226,7 +301,7 @@ public func runSync(
             // later in the window never matches — the series would be "changed"
             // (re-inviting attendees, never converging) on every run.
             let existing = src.recurring ? (store.event(id: existingOcc.id) ?? existingOcc) : existingOcc
-            if src.recurring { existingCopyId[src.id] = existing.id }
+            if src.recurring { existingCopyId[stable] = existing.id }
             if !upToDate(existing, d) {
                 // A recurring copy is written as the whole series (.futureEvents);
                 // a single event touches only itself (.thisEvent).
@@ -251,10 +326,10 @@ public func runSync(
     // for the dry-run preview and the "nothing to do" check. The authoritative
     // set is recomputed AFTER writes (an update can change a copy's occurrences).
     var existingCancel: [(copyId: String, dates: [Date])] = []
-    for sid in recurringSourceIds {
-        guard let copyId = existingCopyId[sid] else { continue }
+    for src in recurringSources {
+        guard let copyId = existingCopyId[src.stable] else { continue }
         let dates = occurrencesToCancel(
-            sourceDates: store.seriesOccurrences(id: sid, in: window),
+            sourceDates: store.seriesOccurrences(id: src.localId, in: window),
             targetDates: store.seriesOccurrences(id: copyId, in: window))
         if !dates.isEmpty { existingCancel.append((copyId, dates)) }
     }
@@ -289,11 +364,12 @@ public func runSync(
     guard confirm.confirm(plan("sync") + "\n\nApply these changes to \(dst.title)?") else { return .aborted }
 
     var created = 0, updated = 0, deleted = 0, cancelled = 0
-    var createdCopyId: [String: String] = [:]   // recurring source id -> new copy id
+    var createdCopyId: [String: String] = [:]   // stable source key -> new copy id
     for d in toCreate {
         let info = try store.createEvent(d); created += 1
         if d.recurrenceRule != nil, let m = parseSyncMarker(d.url) { createdCopyId[m.srcId] = info.id }
     }
+    // (a marker we just wrote carries the stable key verbatim, so m.srcId is it)
     for u in toUpdate { _ = try store.updateEvent(id: u.id, u.changes, span: u.span); updated += 1 }
     // Recurring copies delete the whole series; single events delete just themselves.
     for t in toDelete { _ = try store.deleteEvent(id: t.id, span: t.recurring ? .futureEvents : .thisEvent); deleted += 1 }
@@ -302,10 +378,10 @@ public func runSync(
     // start or recurrence-rule change) would be stale if diffed before the write.
     // Covers both existing and newly-created copies; the copy id comes from the
     // source series id via the marker.
-    for sid in recurringSourceIds {
-        guard let copyId = existingCopyId[sid] ?? createdCopyId[sid] else { continue }
+    for src in recurringSources {
+        guard let copyId = existingCopyId[src.stable] ?? createdCopyId[src.stable] else { continue }
         let dates = occurrencesToCancel(
-            sourceDates: store.seriesOccurrences(id: sid, in: window),
+            sourceDates: store.seriesOccurrences(id: src.localId, in: window),
             targetDates: store.seriesOccurrences(id: copyId, in: window))
         for d in dates { try store.cancelOccurrence(id: copyId, occurrence: d); cancelled += 1 }
     }

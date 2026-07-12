@@ -270,6 +270,7 @@ public final class EKCalendarStore: CalendarStore {
         let start = ev.startDate ?? Date(timeIntervalSinceReferenceDate: 0)
         return EventInfo(
             id: ev.eventIdentifier ?? "",
+            externalId: ev.calendarItemExternalIdentifier ?? "",
             calendar: ev.calendar?.title ?? "",
             calendarId: ev.calendar?.calendarIdentifier ?? "",
             title: ev.title ?? "",
